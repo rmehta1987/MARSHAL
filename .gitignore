@@ -167,3 +167,6 @@ cython_debug/
 log
 # examples
 runs/
+# Midway: run outputs and container-layered pip packages (not source)
+/results/
+/container_extras/
