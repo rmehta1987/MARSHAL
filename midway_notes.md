@@ -414,3 +414,36 @@ matching launcher + `scripts/train_midway_megatron.sbatch`.
   conversion + checkpointing all work, once TE attention is steered off cuDNN
   onto flash-attn. Both the deepspeed and megatron training strategies are now
   proven on this cluster.
+
+---
+
+## Retained SLURM logs (`logs/`) — map (2026-06-02)
+
+`logs/` is `.gitignore`'d by default (it's transient SLURM scratch). We
+explicitly **whitelist only the logs from runs that completed successfully**
+as proof artifacts; every failed/intermediate run's `.out`/`.err` was deleted.
+Each kept log corresponds to a GREEN entry above (or the container pull).
+
+| Log file | Run | What it proves |
+|---|---|---|
+| `pull_50220877.{out,err}` | Container pull (jid 50220877) | The official ROLL image `marshal_env_torch260_vllm084.sif` was pulled + `apptainer inspect`'d clean. `.err` (20K) is normal apptainer pull progress on stderr, not an error. |
+| `train_midway_50252477.{out,err}` | **GREEN smoke** — Qwen2.5-0.5B, deepspeed ZeRO-2, 3 steps, 6m52s | Ray cluster up, 3 optimization steps, `checkpoint-2` saved, `Training exited with code: 0`. Full untrimmed log (~311K). |
+| `train_midway_50259767.{out,err}` | **GREEN scale-up** — Qwen3-4B, deepspeed ZeRO-2, 20 steps, 21m02s | **Trimmed** (1.9M → 8.5K): startup + 4×H200 inventory, Ray init, one compact metrics line per step for all 20 steps (extracted from the raw per-step JSON), `checkpoint-19` save, exit 0. The dropped bulk was 165 per-substep `memory/*` dumps + ANSI Ray worker chatter — no proof value. |
+| `train_midway_50261211.{out,err}` | **GREEN megatron** — Qwen3-4B, `megatron_train` TP=4 sequence_parallel, 3 steps, 15m42s | Megatron init + HF→mca conversion, `compute_log_probs` + `train_step` with real metrics, megatron-format `checkpoint-2/iter_0000001/mp_rank_{00..03}` saved, exit 0 (trustworthy now that the launcher sets `pipefail`). Full untrimmed log (~445K). |
+
+Deleted (failed/intermediate, narrated in the changes log above): jids
+50215500, 50216085, 50219135, 50219318, 50219476, 50220249, 50244392,
+50247374, 50247499 (pre-container + container-debug attempts) and 50261129
+(megatron first attempt, cuDNN fused-attn crash).
+
+Notes:
+- Only the scale-up `.out` was trimmed (it was the 1.9M outlier). The smoke and
+  megatron `.out`s are kept verbatim — both are <500K and small enough to carry
+  as-is. If repo size matters later, the same trim recipe applies to them.
+- The trim recipe lives only here, not in a script: `grep` the
+  `[DRIVER ... system/step` lines, `grep -oE '\{.*\}'` to isolate the JSON,
+  parse with a throwaway python that prints the headline keys (`system/step`,
+  `actor/pg_loss`, `actor/kl_loss`, `actor/approxkl`, `actor_train/grad_norm`,
+  `critic/score/mean`, `tokens/response_length/mean`, `system/tps`,
+  `time/actor_train/train_step/total`), then prepend startup/exit/checkpoint
+  lines with ANSI stripped (`sed -r 's/\x1b\[[0-9;]*m//g'`).
