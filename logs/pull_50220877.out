@@ -1,0 +1,31 @@
+=== Pull job 50220877 on midway3-0200.rcc.local at Thu May 28 15:58:01 CDT 2026 ===
+apptainer version 1.4.1-1.el8
+=== done ===
+-rwxrwxr-x 1 mehta5 rcc-staff 11G May 28 22:01 marshal_env_torch260_vllm084.sif
+com.nvidia.build.id: 91431255
+com.nvidia.build.ref: 532819f386be489bee79e60e2b9878f8fc403e5b
+com.nvidia.cublas.version: 12.4.5.8
+com.nvidia.cuda.version: 9.0
+com.nvidia.cudnn.version: 9.1.0.70
+com.nvidia.cufft.version: 11.2.1.3
+com.nvidia.curand.version: 10.3.5.147
+com.nvidia.cusolver.version: 11.6.1.9
+com.nvidia.cusparse.version: 12.3.1.170
+com.nvidia.cutensor.version: 2.0.1.2
+com.nvidia.nccl.version: 2.21.5
+com.nvidia.npp.version: 12.2.5.30
+com.nvidia.nsightcompute.version: 2024.1.1.4
+com.nvidia.nsightsystems.version: 2024.2.1.106
+com.nvidia.nvjpeg.version: 12.3.1.117
+com.nvidia.pytorch.version: 2.4.0a0+07cecf4
+com.nvidia.tensorrt.version: 10.0.1.6
+com.nvidia.tensorrtoss.version: 24.05
+com.nvidia.volumes.needed: nvidia_driver
+org.label-schema.build-arch: amd64
+org.label-schema.build-date: Thursday_28_May_2026_21:40:35_CDT
+org.label-schema.schema-version: 1.0
+org.label-schema.usage.apptainer.version: 1.4.1-1.el8
+org.label-schema.usage.singularity.deffile.bootstrap: docker
+org.label-schema.usage.singularity.deffile.from: roll-registry.cn-hangzhou.cr.aliyuncs.com/roll/pytorch:nvcr-24.05-py3-torch260-vllm084
+org.opencontainers.image.ref.name: ubuntu
+org.opencontainers.image.version: 22.04

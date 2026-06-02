@@ -8,25 +8,39 @@
 # Submit from the MARSHAL repo root:
 #   sbatch scripts/train_midway_megatron.sbatch
 #
+# (annotations live on the line ABOVE each directive — SLURM only reads lines
+#  that begin with "#SBATCH", and trailing comments on those lines can mis-parse)
+# Name shown by squeue / sacct
 #SBATCH --job-name=marshal-megatron
+# stdout / stderr files; %j expands to the SLURM job id at submit time
 #SBATCH --output=/project/rcc/mehta5/MARSHAL/logs/train_midway_%j.out
 #SBATCH --error=/project/rcc/mehta5/MARSHAL/logs/train_midway_%j.err
+# 'test' is the only partition our allocation can submit to on Midway
 #SBATCH --partition=test
+# Allocation to bill the compute against
 #SBATCH --account=rcc-staff
+# Pin to H200 nodes (their 535 driver gives us CUDA 12.2 via minor-version compat)
 #SBATCH --constraint=H200
+# Walltime cap — the test partition rejects jobs at/above ~12h
 #SBATCH --time=02:00:00
+# One node suffices: all three model roles colocate on its 4 GPUs
 #SBATCH --nodes=1
+# Claim all 4 H200s on the node (megatron TP=4 maps one rank per GPU)
 #SBATCH --gpus-per-node=4
+# A single launcher task — Ray spawns the per-role worker actors itself
 #SBATCH --ntasks=1
+# CPU threads for that task (dataloading, Ray, OpenSpiel env workers)
 #SBATCH --cpus-per-task=32
+# 32 x 16G = 512G host RAM
 #SBATCH --mem-per-cpu=16G
 
 echo "=== Job $SLURM_JOB_ID on $(hostname) at $(date) ==="
 
 PROJECT_ROOT="/project/rcc/mehta5/MARSHAL"
+# Official ROLL apptainer image (pulled by scripts/pull_container_midway.sbatch)
 IMAGE="/project/rcc/mehta5/vllm/marshal_env_torch260_vllm084.sif"
 mkdir -p "$PROJECT_ROOT/logs"
-cd "$PROJECT_ROOT"
+cd "$PROJECT_ROOT"  # launcher prepends $PWD to PYTHONPATH, so cd here first
 
 # ── TMPDIR hygiene ──
 # --export=ALL propagates the submitting shell's TMPDIR (often a now-cancelled
@@ -74,7 +88,7 @@ module load apptainer/1.4.1
 [ -f "$IMAGE" ] || { echo "ERROR: image not found at $IMAGE"; exit 1; }
 
 echo "=== Host env ==="
-nvidia-smi | head -20
+nvidia-smi | head -20   # confirm the 4 H200s are visible before launching
 echo "Image: $IMAGE ($(stat -c %s "$IMAGE") bytes)"
 
 # ── Cleanup on exit ──
@@ -103,6 +117,16 @@ trap cleanup EXIT
 # repo + caches + model store. We explicitly pass the env vars the inner
 # process needs (apptainer otherwise filters most through, but being explicit
 # avoids drift if the user's submitting shell sets something surprising).
+# Two of these env vars are load-bearing and non-obvious:
+#  - LD_LIBRARY_PATH lists /.singularity.d/libs FIRST so the host driver's
+#    libcuda (staged by --nv) wins over any stub libcuda baked into the image.
+#  - TRITON_LIBCUDA_PATH points triton straight at that libcuda — triton probes
+#    for it by hard-coded path, not via the dynamic linker.
+# (no inline comments below: a trailing '#' would comment out the '\' line
+#  continuation and break the command.)
+# NOTE: the megatron-specific knobs (CUDA_DEVICE_MAX_CONNECTIONS=1,
+# NVTE_FUSED_ATTN=0 / NVTE_FLASH_ATTN=1, set -o pipefail) live in the launcher
+# .sh this invokes, not here — see midway_notes.md for why each is needed.
 apptainer exec --nv \
     --bind /project,/scratch \
     --bind "$TMPDIR:$TMPDIR" \

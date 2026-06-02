@@ -1,2 +1,21 @@
+# Ignore everything in logs/ by default (transient SLURM scratch output)...
 *
+# ...except this file and the logs from runs that COMPLETED SUCCESSFULLY,
+# which we keep as proof artifacts (the GREEN entries in ../midway_notes.md).
 !.gitignore
+
+# Container pull that produced marshal_env_torch260_vllm084.sif
+!pull_50220877.out
+!pull_50220877.err
+
+# GREEN smoke    — Qwen2.5-0.5B, deepspeed, 3 steps   (jid 50252477)
+!train_midway_50252477.out
+!train_midway_50252477.err
+
+# GREEN scale-up — Qwen3-4B, deepspeed, 20 steps      (jid 50259767)
+!train_midway_50259767.out
+!train_midway_50259767.err
+
+# GREEN megatron — Qwen3-4B, TP=4 sequence_parallel   (jid 50261211)
+!train_midway_50261211.out
+!train_midway_50261211.err

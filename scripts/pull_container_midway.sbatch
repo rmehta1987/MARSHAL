@@ -7,13 +7,22 @@
 # Decrypto-side pull script that worked). Image lands next to the existing
 # vllm-v0.7.3.sif at /project/rcc/mehta5/vllm/.
 #
+# (annotations sit ABOVE each directive — SLURM only parses lines starting
+#  with "#SBATCH", so these comment lines are ignored by the scheduler)
+# Name shown by squeue / sacct
 #SBATCH --job-name=marshal-pull
+# stdout / stderr; %j expands to the SLURM job id
 #SBATCH --output=/project/rcc/mehta5/MARSHAL/logs/pull_%j.out
 #SBATCH --error=/project/rcc/mehta5/MARSHAL/logs/pull_%j.err
+# 'build' partition — has outbound network for the docker:// pull (compute nodes don't)
 #SBATCH --partition=build
+# Allocation to bill against
 #SBATCH --account=rcc-staff
+# A handful of CPUs is plenty — this is an I/O-bound image download/convert
 #SBATCH --cpus-per-task=4
+# Host RAM for apptainer's layer unpack/convert step
 #SBATCH --mem=32G
+# Generous walltime: the multi-GB pull + sif conversion can take a while
 #SBATCH --time=06:00:00
 
 set -e
