@@ -165,12 +165,24 @@ from a login node, which has HF reachability). For the scale-up/megatron path
 you'd similarly stage `Qwen3-4B`. Repoint the config's `pretrain:` to wherever
 you put it.
 
-And the **`container_extras/` + `mcore_adapter/src`** that the Midway wrap puts
-on the in-container `PYTHONPATH`: `container_extras/` holds the `pyspiel.so` +
-`open_spiel` package built for the image (the read-only sif can't be
-`pip install`ed into), and `mcore_adapter/src` is the vendored adapter. Both
-live in the repo checkout, so once you `git checkout midway-setup` they're
-present — just keep the same `PYTHONPATH` wiring in your PBS wrap.
+Finally, the two dirs the Midway wrap puts on the in-container `PYTHONPATH`:
+
+- **`mcore_adapter/src`** — the vendored adapter, **tracked in git**, so it
+  comes with the clone. Nothing to do.
+- **`container_extras/`** — holds `pyspiel.so` + the `open_spiel` package built
+  *for the image* (the read-only sif can't be `pip install`ed into). ⚠️ **This
+  dir is `.gitignore`'d** (`*.so` + `/container_extras/`), so a fresh clone does
+  **NOT** contain it. You must either (a) transfer it from Midway
+  (`/project/rcc/mehta5/MARSHAL/container_extras/`, ~17 MB) alongside the `.sif`
+  — the `.so` is built for this exact image so it stays valid as long as you run
+  the same `.sif` — or (b) regenerate it inside the container with the image's
+  own pip:
+  ```bash
+  apptainer exec marshal_env_torch260_vllm084.sif \
+    pip install --target "$REPO/container_extras" open_spiel
+  ```
+  Either way, keep the same `PYTHONPATH=container_extras:mcore_adapter/src`
+  wiring in your PBS wrap.
 
 ## Polaris facts to CONFIRM on the cluster (don't trust these blindly)
 
