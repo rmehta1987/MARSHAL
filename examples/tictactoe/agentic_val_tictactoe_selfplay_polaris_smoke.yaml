@@ -1,0 +1,171 @@
+defaults:
+  - ../config/envs@_here_
+  - ../config/deepspeed_zero@_here_
+  - ../config/deepspeed_zero2@_here_
+  - ../config/deepspeed_zero3@_here_
+  - ../config/deepspeed_zero3_cpuoffload@_here_
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+
+# Polaris smoke config: Qwen2.5-0.5B-Instruct (local), deepspeed ZeRO-2 actor,
+# tensorboard tracking, 3 optimization steps. Goal is to close the training loop
+# end-to-end on Polaris's 4x A100-40GB. Direct copy of the Midway smoke config
+# (agentic_val_tictactoe_selfplay_midway_smoke.yaml) with two cluster changes:
+#  - pretrain -> Polaris eagle model store
+#  - actor_infer gpu_memory_utilization 0.5 -> 0.3: A100 has 40 GiB vs H200's
+#    ~140 GiB, and all three roles colocate on the 4 GPUs, so we give vLLM a
+#    smaller slice (12 GiB is ample for a 0.5B model + KV cache).
+exp_name: "agentic_tictactoe_selfplay_polaris_smoke"
+seed: 42
+system_envs:
+  USE_MODELSCOPE: "0"
+
+track_with: tensorboard
+tracker_kwargs:
+  log_dir: ${oc.env:ROLL_OUTPUT_DIR}/tensorboard
+
+# Polaris smoke: 3 roles on 3 DISTINCT GPUs (1 worker each). Two constraints drive this:
+#  (1) The PBS job cgroup caps the WHOLE job at pids.max=4096 threads/processes
+#      (measured: scripts/polaris_limits_probe.pbs). Each role is 1 Ray worker per GPU,
+#      and each vLLM/DeepSpeed/CUDA/NCCL worker spawns dozens-to-hundreds of threads NOT
+#      governed by OMP. 4 ranks/role (the original) => ~12 GPU workers => >4096 => EAGAIN.
+#      1 worker/role => 3 GPU workers => fits.
+#  (2) ROLL's per-parameter weight-sync (actor_train -> actor_infer) sends the CUDA tensor
+#      over a Ray RPC when the two are COLOCATED on the SAME gpu (the comm-plan's P2P path,
+#      model_update_group.py:85). vLLM 0.8.4's V1 engine msgpack-serializes RPC args and
+#      can't round-trip a tensor (cuda->bf16->"'list' has no shape"). Placing train and
+#      infer on DIFFERENT GPUs makes the comm-plan use the NCCL broadcast path
+#      (collective.broadcast — no serialization at all), which is V1-safe.
+# => actor_train=GPU0, actor_infer=GPU1, reference=GPU2 (3 of the node's 4 A100s).
+num_gpus_per_node: 4
+
+max_steps: 3
+save_steps: 3
+logging_steps: 1
+eval_steps: 100
+resume_from_checkpoint: false
+
+rollout_batch_size: 16
+val_batch_size: 16
+sequence_length: 4096
+
+dual_clip_loss: true
+ppo_epochs: 1
+adv_estimator: "reinforce"
+init_kl_coef: 0.0
+use_kl_loss: true
+kl_loss_coef: 0.20
+
+whiten_advantages: true
+entropy_loss_coef: 0
+
+pretrain: /lus/eagle/projects/lighthouse-uchicago/members/mehta5/models/Qwen2.5-0.5B-Instruct
+
+actor_train:
+  model_args:
+    attn_implementation: eager
+    disable_gradient_checkpointing: false
+    dtype: bf16
+    model_type: ~
+  training_args:
+    lr_scheduler_type: cosine_with_min_lr
+    learning_rate: 1e-6
+    weight_decay: 0.05
+    adam_beta1: 0.9
+    adam_beta2: 0.95
+    per_device_train_batch_size: 1
+    gradient_accumulation_steps: 1
+    warmup_steps: 0
+  data_args:
+    template: qwen2_5
+  strategy_args:
+    strategy_name: deepspeed_train
+    strategy_config:
+      ${deepspeed_zero2}
+  device_mapping: "[0]"   # actor_train alone on GPU 0 (see num_gpus_per_node note)
+  infer_batch_size: 2
+
+actor_infer:
+  model_args:
+    attn_implementation: eager
+    disable_gradient_checkpointing: true
+    dtype: bf16
+  generating_args:
+    max_new_tokens: 512
+    top_p: 0.99
+    top_k: 100
+    num_beams: 1
+    temperature: 0.6
+    num_return_sequences: 1
+  data_args:
+    template: qwen2_5
+  strategy_args:
+    strategy_name: vllm
+    strategy_config:
+      gpu_memory_utilization: 0.3
+      block_size: 16
+      load_format: auto
+      enforce_eager: true
+  device_mapping: "[1]"   # actor_infer on GPU 1 -> train->infer weight-sync uses NCCL broadcast (V1-safe)
+
+reference:
+  model_args:
+    attn_implementation: eager
+    disable_gradient_checkpointing: true
+    dtype: bf16
+    model_type: ~
+  data_args:
+    template: qwen2_5
+  strategy_args:
+    strategy_name: hf_infer
+    strategy_config: ~
+  device_mapping: "[2]"   # frozen KL reference on GPU 2 (not weight-synced)
+  infer_batch_size: 2
+
+enable_response_mask: True
+action_sep: "||"
+use_turn_scores: True
+enable_think: True
+max_actions_per_traj: 20
+reward_normalization:
+  grouping: tags
+  method: mean
+  separate_norm_for_selfplay: true
+whiten_rewards: true
+advantage_norm: mean
+pg_clip_high: 0.20
+
+custom_envs:
+  TicTacToe:
+    env_type: tictactoe
+    max_actions_per_traj: ${max_actions_per_traj}
+    grid_vocab: false
+    env_config:
+      built_in_opponent: none
+      render_mode: text
+
+# NOTE (Polaris smoke): env_groups slashed 16 -> 2 (and n_groups to match).
+# The agentic pipeline spawns one RequestScheduler + _QueueActor Ray process per
+# environment instance (env_groups * group_size). At 16 groups that was ~80 envs
+# => ~190 Ray processes on one node, whose combined threads exhaust the PBS job's
+# cgroup pids.max (pthread_create/vfork -> "Resource temporarily unavailable"),
+# killing workers and even the DeepSpeed fused_adam JIT compile. 2 groups => 10
+# envs => ~35 processes, leaving pids headroom. Smoke only needs the loop to close;
+# this just makes each env run more trajectories sequentially (traj_per_env up).
+train_env_manager:
+  format_penalty: 0.05
+  max_env_num_per_worker: 8
+  env_groups: 2
+  group_size: 4
+  tags: [TicTacToe]
+  n_groups: [2]
+
+val_env_manager:
+  max_env_num_per_worker: 8
+  env_groups: 2
+  group_size: 1
+  tags: [TicTacToe]
+  n_groups: [2]

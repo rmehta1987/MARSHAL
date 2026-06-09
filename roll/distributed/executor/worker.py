@@ -96,9 +96,29 @@ class Worker:
 
     @staticmethod
     def get_node_ip():
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(("8.8.8.8", 80))
-        return s.getsockname()[0]
+        # Ray already resolves the node's IP without any outbound network access.
+        # The original implementation opened a UDP socket to 8.8.8.8:80 and read
+        # back the local address — that raises OSError: [Errno 101] Network is
+        # unreachable on air-gapped HPC compute nodes (e.g. ALCF Polaris compute
+        # nodes have no route to the public internet), killing every worker at
+        # construction. Prefer Ray's own resolution; fall back only if needed.
+        try:
+            import ray
+
+            ip = ray.util.get_node_ip_address()
+            if ip:
+                return ip
+        except Exception:
+            pass
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            try:
+                s.connect(("8.8.8.8", 80))
+                return s.getsockname()[0]
+            finally:
+                s.close()
+        except OSError:
+            return socket.gethostbyname(socket.gethostname())
 
     @staticmethod
     def get_free_port():

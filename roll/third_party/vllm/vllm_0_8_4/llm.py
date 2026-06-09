@@ -207,6 +207,23 @@ class Llm084(LLM):
         self.collective_rpc(method="broadcast_parameter", args=args, kwargs=kwargs)
 
     def update_parameter(self, *args, **kwargs):
+        if envs.VLLM_USE_V1:
+            # Under the V1 engine the engine core runs in a separate process and
+            # collective_rpc serializes its args via tensor.numpy(), which rejects both
+            # CUDA tensors ("can't convert cuda:0 ... to numpy") AND bfloat16 ("Got
+            # unsupported ScalarType BFloat16" — numpy has no bf16). So move any weight
+            # tensor to host and up-cast bf16/fp16 to float32 (lossless for bf16). The
+            # receiver (worker_helper.update_parameter -> vLLM load_weights) copies it
+            # back into the (bf16) GPU param, casting as needed. Mirrors the host-side
+            # handling update_parameter_in_bucket already does for V1.
+            def _to_host(x):
+                if isinstance(x, torch.Tensor):
+                    x = x.cpu()
+                    if x.is_floating_point():
+                        x = x.float()
+                return x
+            args = tuple(_to_host(a) for a in args)
+            kwargs = {k: _to_host(v) for k, v in kwargs.items()}
         self.collective_rpc(method="update_parameter", args=args, kwargs=kwargs)
 
     def update_parameter_in_bucket(self, meta_infos, buffer, ranks_in_worker):

@@ -1,0 +1,62 @@
+#!/bin/bash
+# Tiny diagnostic: dump the resource limits a debug compute node actually enforces,
+# to root-cause the persistent "pthread_create/vfork: Resource temporarily
+# unavailable" (EAGAIN) that kills the MARSHAL Ray workers. No venv/tarball — just
+# reads /proc and the cgroup tree, so it schedules and finishes in well under a minute.
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:ncpus=64:ngpus=4
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:05:00
+#PBS -N marshal-limits
+#PBS -j oe
+#PBS -o /lus/eagle/projects/lighthouse-uchicago/members/mehta5/MARSHAL/logs/limits_probe.out
+
+echo "=== host: $(hostname)  time: $(date) ==="
+echo
+echo "=== ulimit -a ==="
+ulimit -a
+echo
+echo "=== nproc / threads-max / max_map_count ==="
+echo "nproc=$(nproc)"
+echo "kernel.threads-max=$(cat /proc/sys/kernel/threads-max 2>/dev/null)"
+echo "vm.max_map_count=$(cat /proc/sys/vm/max_map_count 2>/dev/null)"
+echo "kernel.pid_max=$(cat /proc/sys/kernel/pid_max 2>/dev/null)"
+echo
+echo "=== /proc/self/cgroup ==="
+cat /proc/self/cgroup
+echo
+echo "=== cgroup-v2 tree walk (pids.max / pids.current / memory.max) ==="
+rel=$(awk -F: '/^0::/{print $3}' /proc/self/cgroup)
+p="/sys/fs/cgroup${rel}"
+while :; do
+  echo "[$p]"
+  for f in pids.max pids.current memory.max memory.current cpu.max; do
+    [ -f "$p/$f" ] && echo "    $f = $(cat "$p/$f" 2>/dev/null)"
+  done
+  [ "$p" = "/sys/fs/cgroup" ] && break
+  p=$(dirname "$p")
+done
+echo
+echo "=== cgroup-v1 fallback ==="
+for d in /sys/fs/cgroup/pids/* /sys/fs/cgroup/pids; do
+  [ -f "$d/pids.max" ] && echo "$d/pids.max = $(cat "$d/pids.max" 2>/dev/null)  current=$(cat "$d/pids.current" 2>/dev/null)"
+done 2>/dev/null
+echo
+echo "=== practical thread-spawn ceiling (count threads until clone fails) ==="
+python3 - <<'PY' 2>&1 || echo "(python3 unavailable; skipping spawn test)"
+import threading, sys
+n = 0
+ev = threading.Event()
+def hold(): ev.wait()
+try:
+    while n < 200000:
+        threading.Thread(target=hold, daemon=True).start()
+        n += 1
+except Exception as e:
+    print(f"clone failed after {n} threads: {type(e).__name__}: {e}")
+else:
+    print(f"reached {n} threads without failure")
+ev.set()
+PY
+echo "=== DONE ==="

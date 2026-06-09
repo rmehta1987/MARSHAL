@@ -11,7 +11,28 @@ import torch
 import torch.distributed as dist
 from torch.nn.utils.rnn import pad_sequence
 from transformers import set_seed
-from mcore_adapter.models.converter.convert_utils import RecvBucketManager
+try:
+    from mcore_adapter.models.converter.convert_utils import RecvBucketManager
+except ImportError:
+    # Polaris venv (deepspeed-only) bring-up: megatron-core is not installed, so
+    # importing mcore_adapter's convert_utils (which does `from megatron.core import
+    # mpu` at module load) raises ImportError. VllmStrategy only ever calls
+    # RecvBucketManager() and .clear(); process_bucket() is the megatron->vllm
+    # weight-sync path and is unreachable with a deepspeed actor. Provide a minimal
+    # stub so this module imports. (Same fix the Midway source-install used pre-
+    # container; see polaris_pbs_notes.md / midway_notes.md smoke v5.)
+    class RecvBucketManager:
+        def __init__(self):
+            self.waiting_tensors = {}
+
+        def process_bucket(self, *args, **kwargs):
+            raise NotImplementedError(
+                "RecvBucketManager stub: megatron-core not installed; megatron->vllm "
+                "weight sync is unavailable on this deepspeed-only build."
+            )
+
+        def clear(self):
+            assert len(self.waiting_tensors) == 0
 from vllm import SamplingParams, RequestOutput
 from vllm.utils import random_uuid
 

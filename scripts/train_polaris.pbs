@@ -1,0 +1,174 @@
+#!/bin/bash
+# Polaris (PBS Pro) MARSHAL training wrap — NATIVE venv path (NO apptainer).
+# PBS analog of scripts/train_midway.sbatch. Submit from the repo root:
+#     qsub scripts/train_polaris.pbs
+#
+# Stack lives in the marshal-train venv (torch 2.6.0+cu124 / vllm 0.8.4 /
+# ray 2.46.0 / deepspeed 0.16.4), built per polaris_pbs_notes.md. One node,
+# 4x A100-40GB; Ray colocates actor_train (deepspeed) + actor_infer (vllm) +
+# reference (hf) on the 4 GPUs.
+#
+# (PBS reads only lines that start with "#PBS"; keep annotations on the line ABOVE.)
+# Job name (shown by qstat); also the default -o/-e file prefix
+#PBS -N marshal-smoke
+# Allocation to charge (per `sbank-list-allocations`; note: NOT "Uchicago-lighthouse")
+#PBS -A lighthouse-uchicago
+# debug queue: 1-2 nodes, <=1h walltime — right for the smoke
+#PBS -q debug
+# One full node: 64 cpus (Milan 32c/64t), all 4 A100 GPUs
+#PBS -l select=1:ncpus=64:ngpus=4
+# Polaris REJECTS jobs that don't declare the filesystems they touch
+#PBS -l filesystems=home:eagle
+# Walltime (debug cap is 1h)
+#PBS -l walltime=01:00:00
+# stdout/stderr -> repo logs/ dir (trailing slash = directory; must exist at submit)
+#PBS -o /lus/eagle/projects/lighthouse-uchicago/members/mehta5/MARSHAL/logs/
+#PBS -e /lus/eagle/projects/lighthouse-uchicago/members/mehta5/MARSHAL/logs/
+
+PROJECT_ROOT=/lus/eagle/projects/lighthouse-uchicago/members/mehta5/MARSHAL
+BASE=/lus/eagle/projects/lighthouse-uchicago/members/mehta5
+# Venv location is overridable (qsub -v MARSHAL_VENV=...) so we can compare eagle vs
+# home vs node-local SSD without editing the wrap. Default = the canonical eagle venv.
+VENV="${MARSHAL_VENV:-$BASE/conda-envs/marshal-train}"
+cd "$PROJECT_ROOT"   # PBS starts the job in $HOME; the launcher prepends $PWD to PYTHONPATH
+mkdir -p "$PROJECT_ROOT/logs"
+
+# ── Live wrap log (observability) ──
+# PBS only copies its .OU/.ER to logs/ at job END, so an early hang is invisible
+# while the job runs. Mirror everything to an eagle file we can `tail -f` live.
+WRAP_LOG="$PROJECT_ROOT/logs/wrap_${PBS_JOBID%%.*}.log"
+exec > >(stdbuf -oL -eL tee -a "$WRAP_LOG") 2>&1   # line-buffered so the live log is real-time-accurate
+
+echo "=== Job $PBS_JOBID on $(hostname) at $(date) ==="
+echo ">>> phase: modules"
+
+# ── Modules + venv ──
+# conda/2025-09-25 provides the base py3.12 (libpython) the venv was built from.
+# cuda-12.4.1 toolkit gives nvcc (exact match to torch's cu124) for deepspeed's
+# JIT build of fused_adam; gcc-12 (12.3.0) is >=9 (deepspeed) and <=13.2 (CUDA 12.4
+# nvcc's host-compiler cap) — we OVERRIDE the conda module's CC=gcc-14, which
+# nvcc 12.4 rejects. We deliberately do NOT prepend the toolkit's lib64 to
+# LD_LIBRARY_PATH: torch's own bundled cu124 libs must win at runtime; the toolkit
+# is for compilation only.
+module use /soft/modulefiles
+module load conda/2025-09-25
+conda activate base
+export CUDA_HOME=/soft/compilers/cudatoolkit/cuda-12.4.1
+export PATH="$CUDA_HOME/bin:$PATH"
+export CC=/usr/bin/gcc-12
+export CXX=/usr/bin/g++-12
+
+# ── Node-local scratch (RAID0 SSD), set EARLY because venv staging extracts into it.
+#    PBS can inherit a stale TMPDIR; force a per-job one (fall back to /tmp). ──
+unset TMPDIR
+NODE_SCRATCH=/local/scratch
+[ -d "$NODE_SCRATCH" ] || NODE_SCRATCH=/tmp
+export TMPDIR="$NODE_SCRATCH/${USER}_${PBS_JOBID%%.*}"
+mkdir -p "$TMPDIR"
+echo "TMPDIR=$TMPDIR"
+
+# ── Stage the venv to node-local SSD from a SINGLE tarball (the fix for slow Lustre) ──
+# eagle is fine for big sequential reads (~420 MB/s) but catastrophic at the 71.7k-
+# small-file metadata storm `import torch` triggers (>300s / hung on compute). So we
+# pre-pack the venv into ONE tarball offline, then per-job read that one big file
+# (~20s) + extract onto local SSD (fast local writes) and run from there. Set
+# MARSHAL_VENV_TARBALL (qsub -v) to enable; it overrides MARSHAL_VENV.
+if [ -n "${MARSHAL_VENV_TARBALL:-}" ]; then
+    echo ">>> phase: staging venv tarball -> node-local SSD"
+    LOCAL_VENV="$TMPDIR/marshal-train"
+    mkdir -p "$LOCAL_VENV"
+    _t0=$SECONDS
+    tar xf "$MARSHAL_VENV_TARBALL" -C "$LOCAL_VENV"
+    echo "    extracted $(du -sh "$LOCAL_VENV" 2>/dev/null | cut -f1) in $((SECONDS-_t0))s from $MARSHAL_VENV_TARBALL"
+    VENV="$LOCAL_VENV"
+fi
+
+# Activate the venv MANUALLY (do NOT `source $VENV/bin/activate`): a copied/relocated
+# venv's activate script hardcodes the ORIGINAL path, so sourcing it would silently
+# use that copy. Prepending $VENV/bin to PATH makes $VENV/bin/python the interpreter,
+# and its (location-independent) pyvenv.cfg points sys.path at $VENV's site-packages.
+# Works identically for eagle / home / node-local-SSD venvs.
+export VIRTUAL_ENV="$VENV"
+export PATH="$VENV/bin:$PATH"
+hash -r
+echo "    venv: $VENV"
+echo ">>> phase: venv activated"
+
+echo "python: $(command -v python) ($(python --version 2>&1))"
+echo "nvcc:   $(command -v nvcc) ($(nvcc --version 2>/dev/null | awk '/release/{print $5,$6}'))"
+echo "CC=$CC  CXX=$CXX"
+# nvidia-smi has hung in an unkillable D-state on multiple Polaris debug nodes
+# (jids 7185571, 7185610) — even under `timeout`. It's purely diagnostic, so run it
+# fully detached where it can NEVER block the job; output (if it returns) goes to a
+# side file.
+echo ">>> phase: nvidia-smi (backgrounded, non-blocking)"
+( timeout 30 nvidia-smi > "$PROJECT_ROOT/logs/nvidia-smi_${PBS_JOBID%%.*}.txt" 2>&1 & ) || true
+
+# Fail-FAST GPU probe via torch, bounded by `timeout` so a hung CUDA init can't burn
+# the whole walltime. GRANULAR + UNBUFFERED (python -u, flush=True, per-step elapsed
+# timestamps) so the live log pinpoints exactly which call blocks: import torch /
+# is_available() / device_count() / first CUDA context (tensor on cuda). Earlier
+# probes hid this: not unbuffered, so prints were lost when `timeout` killed them.
+echo ">>> phase: torch CUDA probe"
+echo "    env: CUDA_VISIBLE_DEVICES=[${CUDA_VISIBLE_DEVICES-<unset>}]  CUDA_HOME=$CUDA_HOME"
+timeout 300 python -u "$PROJECT_ROOT/scripts/polaris_gpu_probe.py"
+rc=$?
+echo ">>> torch probe exit rc=$rc"
+if [ $rc -ne 0 ]; then
+    echo "FATAL: torch CUDA probe failed/timed out (rc=$rc) on $(hostname). Aborting (not burning walltime)."
+    exit 42
+fi
+echo ">>> phase: setup (caches/output)"
+
+# ── Caches on eagle (home quota is small). Model is pre-staged -> go offline so
+#    the compute node never reaches for the network (it would need a proxy). ──
+export HF_HOME=$BASE/hf_cache
+export HUGGINGFACE_HUB_CACHE=$HF_HOME
+export HF_HUB_OFFLINE=1
+export TRANSFORMERS_OFFLINE=1
+export TRITON_CACHE_DIR=$BASE/triton_cache
+export TORCHINDUCTOR_CACHE_DIR=$BASE/torchinductor_cache
+# DeepSpeed JIT-compiles fused_adam (and friends) on first use. Persist the build
+# on eagle so it compiles ONCE and every later job/rank loads the cached .so —
+# avoids re-forking nvcc/gcc under the crowded Ray job (where pids headroom is
+# tight). Pin the arch so the compile targets only the A100 (sm_80), not "all
+# visible archs" (the TORCH_CUDA_ARCH_LIST-is-not-set warning we saw in-worker).
+export TORCH_EXTENSIONS_DIR=$BASE/torch_extensions
+export TORCH_CUDA_ARCH_LIST=8.0
+mkdir -p "$HF_HOME" "$TRITON_CACHE_DIR" "$TORCHINDUCTOR_CACHE_DIR" "$TORCH_EXTENSIONS_DIR"
+
+# ── Ray scratch under the node-local TMPDIR ──
+export RAY_TMPDIR="$TMPDIR/ray"
+mkdir -p "$RAY_TMPDIR"
+
+# ── Output dir ──
+export ROLL_OUTPUT_DIR="$PROJECT_ROOT/results/tictactoe_selfplay_polaris_smoke/${PBS_JOBID%%.*}_$(date +%Y%m%d-%H%M%S)"
+export ROLL_LOG_DIR="$ROLL_OUTPUT_DIR/logs"
+export ROLL_RENDER_DIR="$ROLL_OUTPUT_DIR/render"
+mkdir -p "$ROLL_LOG_DIR" "$ROLL_RENDER_DIR"
+
+# ── PYTHONPATH: repo only. The deepspeed smoke does NOT need mcore_adapter on the
+#    path — vllm_strategy.py's RecvBucketManager import is stubbed for the missing
+#    megatron-core (see polaris_pbs_notes.md). ──
+export PYTHONPATH="$PROJECT_ROOT:${PYTHONPATH:-}"
+
+# ── Cleanup on exit (native — Ray procs are this job's children on this node) ──
+cleanup() {
+    echo "$(date): Cleanup triggered (exit)"
+    ray stop --force 2>/dev/null || true
+    sleep 2
+    pkill -u "$USER" -f "ray::"      2>/dev/null || true
+    pkill -u "$USER" -f "raylet"     2>/dev/null || true
+    pkill -u "$USER" -f "gcs_server" 2>/dev/null || true
+    rm -rf /tmp/ray/session_latest   2>/dev/null || true
+    echo "$(date): Cleanup complete"
+}
+trap cleanup EXIT
+
+# ── Run training (launcher tees to ROLL_LOG_DIR/custom_logs.log and, via its
+#    own `set -o pipefail`, returns python's true exit status) ──
+echo ">>> phase: launching training ($(date))"
+bash examples/tictactoe/run_agentic_pipeline_tictactoe_selfplay_polaris.sh
+TRAIN_EXIT=$?
+echo "Training exited with code: $TRAIN_EXIT"
+exit $TRAIN_EXIT

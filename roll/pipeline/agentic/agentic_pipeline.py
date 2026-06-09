@@ -77,13 +77,21 @@ class AgenticPipeline(BasePipeline):
             infer_cluster=self.actor_infer,
             mode="train",
         )
-        self.val_rollout_scheduler = RolloutScheduler(
-            config=self.pipeline_config,
-            env_manager_config=self.pipeline_config.val_env_manager,
-            resource_manager=self.resource_manager,
-            infer_cluster=self.actor_infer,
-            mode="val",
-        )
+        # Skip validation entirely when eval_steps > max_steps: it would only ever fire
+        # the implicit step-0 eval, which a bring-up smoke does not need. Not creating the
+        # val RolloutScheduler/RequestScheduler/EnvironmentWorker actors means fewer
+        # processes contending for the PBS job cgroup's pids.max=4096 (the startup EAGAIN
+        # race; see polaris_pbs_notes.md) AND removes the step-0 val-rollout failure path.
+        # Paired with the eval guard in run().
+        self.val_rollout_scheduler = None
+        if self.pipeline_config.eval_steps <= self.pipeline_config.max_steps:
+            self.val_rollout_scheduler = RolloutScheduler(
+                config=self.pipeline_config,
+                env_manager_config=self.pipeline_config.val_env_manager,
+                resource_manager=self.resource_manager,
+                infer_cluster=self.actor_infer,
+                mode="val",
+            )
         refs: List[ray.ObjectRef] = []
         refs.extend(self.actor_train.initialize(pipeline_config=self.pipeline_config, blocking=False))
         if self.pipeline_config.adv_estimator == "gae":
@@ -128,7 +136,7 @@ class AgenticPipeline(BasePipeline):
                 batch: DataProto = DataProto()
                 batch.meta_info = {"global_step": global_step}
 
-                if global_step % self.pipeline_config.eval_steps == 0:
+                if self.val_rollout_scheduler is not None and global_step % self.pipeline_config.eval_steps == 0:
                     batch.meta_info["is_offload_states"] = False
                     eval_batch = self.val_rollout_scheduler.get_batch(batch, self.pipeline_config.val_batch_size)
                     eval_metrics = reduce_metrics(eval_batch.meta_info.get("metrics", {}))

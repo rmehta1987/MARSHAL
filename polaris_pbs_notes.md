@@ -1,0 +1,634 @@
+# MARSHAL Polaris (PBS) port — running notes
+
+Living doc. Tracks the ALCF **Polaris** (PBS Pro) bring-up of MARSHAL, the PBS
+analog of the RCC Midway (Slurm) port. The template and the load-bearing fixes
+come from `midway_notes.md`; read that first. Authored per
+`polaris_handoff_prompt.md`.
+
+Scope is **cluster bring-up only**: one small smoke-config training run that
+completes a handful of optimization steps and writes an artifact. NOT paper
+repro, NOT eval, NOT hyperparameter tuning.
+
+> **Headline divergence from Midway/the handoff:** the handoff assumed the
+> official ROLL **Apptainer container** is the unit of portability. On Polaris
+> that path is blocked — there is no `.sif` here, the Aliyun ROLL registry is
+> unreachable from ALCF, and `container_extras/` is `.gitignore`'d (so a fresh
+> clone doesn't carry it). We therefore went the **native conda/venv** route
+> instead, installing ROLL's *exact pinned stack* (the same versions the
+> container froze) so we sidestep the ray/vllm impasse that killed the Midway
+> source-install. See "Env strategy" below.
+
+---
+
+## ▶ STATUS: GREEN ✅ (2026-06-06) — bring-up complete
+
+The MARSHAL tictactoe self-play smoke ran end-to-end on Polaris (jid **7186746**): 3 DeepSpeed
+REINFORCE steps → `pipeline complete!` → 12 G `checkpoint-2` + TensorBoard, `Training exited with
+code: 0`. Full details + artifact paths in the **"GREEN — MARSHAL smoke test"** section below;
+the 10-layer fix stack and every failed attempt are in the decisions log.
+
+```bash
+# Reproduce:
+cd /lus/eagle/projects/lighthouse-uchicago/members/mehta5/MARSHAL
+qsub -v MARSHAL_VENV_TARBALL=/lus/eagle/projects/lighthouse-uchicago/members/mehta5/marshal-train-venv.tar \
+     scripts/train_polaris.pbs
+# Watch logs/wrap_<jid>.log + results/.../<jid>_*/logs/custom_logs.log for
+# "pipeline complete!" and "Training exited with code: 0".
+```
+
+> Known residual flakiness: the startup EAGAIN race vs the debug-node cgroup `pids.max=4096`
+> loses ~half the time at RolloutScheduler creation, and a lost run HANGS (qdel + resubmit).
+> The durable fix is an ALCF ticket to raise the per-job `pids.max`. Everything else is fixed
+> in-repo and reproducible.
+
+---
+
+## Cluster facts (Polaris / ALCF)
+
+| Item | Value |
+|---|---|
+| Scheduler | **PBS Pro** (`qsub`/`qstat`/`qdel`), login host `polaris-login-02` |
+| Account (`-A`) | **`lighthouse-uchicago`** ⚠️ NOT "Uchicago-lighthouse" — confirmed via `sbank-list-allocations` (alloc 12374, ~17,184 node-h available) |
+| Queue | `debug` (1–2 nodes, ≤1 h walltime) — used for the smoke. Also `debug-scaling` (1–10 nodes, 1 job/user), `prod` (routing, ≥10 nodes, 24 h) |
+| GPU | 4× NVIDIA **A100 40 GiB** (HBM2, sm_80) per node. ⚠️ far tighter than Midway's H200 (~140 GiB) |
+| CPU / RAM | AMD EPYC Milan 7543P, 32c/64t (`ncpus=64`), 512 GiB DDR4 |
+| Node-local scratch | pair of 1.6 TB SSDs in RAID0 (used for `TMPDIR`; mount assumed `/local/scratch`, wrap falls back to `/tmp`) |
+| Native CUDA | **12.4.1** (`/soft/compilers/cudatoolkit/cuda-12.4.1`, ALCF's PyTorch is built against it). Base conda ships torch 2.8.0 (cu128) → driver supports ≥ CUDA 12.8, so our cu124 wheels are safe |
+| Filesystems | `home`, `eagle` (`/lus/eagle/projects`), `grand`. Jobs **must** declare `-l filesystems=home:eagle` or PBS rejects them |
+| Project root | `/lus/eagle/projects/lighthouse-uchicago/members/mehta5/MARSHAL` |
+| Member base | `/lus/eagle/projects/lighthouse-uchicago/members/mehta5` (venv, models, caches live here) |
+| Training venv | `…/members/mehta5/conda-envs/marshal-train` (clean `python -m venv`, see below) |
+| Model store | `…/members/mehta5/models/` (`Qwen2.5-0.5B-Instruct` staged) |
+| HF / triton / inductor caches | `…/members/mehta5/{hf_cache,triton_cache,torchinductor_cache}` |
+| Apptainer | 1.3.6 binary exists under `/soft/spack/testing/0.8.1/apptainer/...` (its module is broken on stale spack deps). **Unused** — we run native, not in a container |
+
+### PBS submit idiom (single GPU node)
+
+```bash
+qsub -A lighthouse-uchicago -q debug \
+     -l select=1:ncpus=64:ngpus=4 -l filesystems=home:eagle \
+     -l walltime=01:00:00 scripts/train_polaris.pbs
+# (these are baked into the #PBS header of scripts/train_polaris.pbs)
+```
+
+Note: `-l select=` does **not** take `:system=polaris`. `$PBS_JOBID` looks like
+`7185571.polaris-pbs-01.…`; `${PBS_JOBID%%.*}` gives the clean numeric tag.
+
+---
+
+## Env strategy — native venv with ROLL's pinned stack (not a container)
+
+The handoff's container path is unavailable on Polaris (no `.sif`, Aliyun
+unreachable, `container_extras/` absent). The Midway notes also record that a
+*source-install* env was tried there and abandoned over an unwinnable conflict:
+ROLL pins `ray<=2.46.0`, but the torch-2.8/vllm-0.10.2 stack Midway's driver
+forced needs `ray>=2.48`. **We dodge that here by construction**: install ROLL's
+own pinned, mutually-consistent versions — the exact set the container froze —
+where `vllm 0.8.4` is perfectly happy with `ray 2.46.0`.
+
+```
+torch 2.6.0+cu124 · vllm 0.8.4 · ray 2.46.0 · deepspeed 0.16.4 ·
+transformers 4.51.2 · tokenizers 0.21.4 · numpy 1.26.4 · open_spiel 1.6.15
+```
+
+This works on Polaris because **cu124 is the native CUDA** (12.4.1) and the GPUs
+are A100 sm_80 (the conda module even sets `TORCH_CUDA_ARCH_LIST=8.0`).
+
+**Deliberate deviation from ALCF guidance:** the ALCF PyTorch docs recommend
+*not* pip-installing a custom torch and using their base-conda torch (2.8.0)
+instead. We must deviate — ROLL/vllm 0.8.4 pin `torch==2.6.0`. This is safe
+because the smoke is **single-node** (Ray colocates all three roles on one
+node's 4 GPUs over NVLink), so we need none of ALCF's multi-node AWS-OFI/NCCL
+fabric (which their docs even warn can hang Megatron-DeepSpeed).
+
+### Why the megatron/transformer-engine stack is *not* installed (for the smoke)
+
+The smoke uses `deepspeed_train` + `attn_implementation: eager`, so it needs
+neither `transformer-engine`, `megatron-core`, `apex`, nor `flash-attn`. Those
+are deferred to the (optional) megatron path. One consequence is handled by a
+source patch — see "RecvBucketManager stub" below.
+
+---
+
+## Env build — exact steps (2026-06-05)
+
+All on the **login node** (has HF reachability + outbound; pip needs no GPU).
+Caches pointed at eagle (home quota is small):
+
+```bash
+module use /soft/modulefiles && module load conda/2025-09-25 && conda activate base   # base py 3.12.11
+export PIP_CACHE_DIR=…/mehta5/pip_cache TMPDIR=…/mehta5/tmp
+python -m venv …/mehta5/conda-envs/marshal-train        # clean (NO --system-site-packages)
+source …/conda-envs/marshal-train/bin/activate
+pip install --upgrade pip wheel setuptools
+
+# 1) torch first (verifies the cu124 wheel): torch 2.6.0 → cuda build 12.4, triton 3.2.0
+pip install torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0
+
+# 2) the consistent inference/RL trio (joint resolve)
+pip install vllm==0.8.4 ray==2.46.0 deepspeed==0.16.4
+#    ⚠️ this pulled bleeding-2026 transformers 5.10.2 / tokenizers 0.22 / hub 1.17 / numpy 2.2 —
+#    exactly the Midway "transformers must be <5" hazard.
+
+# 3) pin ROLL's tested versions + smoke extras (downgrades the above)
+pip install transformers==4.51.2 "tokenizers<0.22" "numpy<2.0" \
+            datasets==3.1.0 peft==0.12.0 accelerate==0.34.2 \
+            tensordict modelscope "tyro>=0.5.7" pydantic loralib einops isort jsonlines \
+            deprecated dacite codetiming more_itertools wandb math-verify hydra-core omegaconf \
+            gym "gymnasium[toy-text]" gym_sokoban "trl>=0.11,<0.19" \
+            open_spiel matplotlib tensorboard
+```
+
+Resolved (verified by import): `torch 2.6.0+cu124`, `vllm 0.8.4`, `ray 2.46.0`,
+`deepspeed 0.16.4`, `transformers 4.51.2`, `tokenizers 0.21.4`, `numpy 1.26.4`,
+`trl 0.18.2`, `open_spiel 1.6.15` (`import pyspiel` → 122 games),
+`tensorboard 2.20.0`.
+
+Two **harmless** pip warnings: `cupy-cuda12x 14.1.1` and
+`opencv-python-headless 4.13` want `numpy>=2`, but we hold `numpy 1.26.4`. Neither
+is imported on the text tic-tac-toe + deepspeed path (Midway confirmed: `grep
+"import cv2" roll/` is empty; cupy isn't hit single-node). The full ROLL agentic
+import surface loads cleanly under numpy 1.26.4, so the warnings are cosmetic. If
+a future path imports them, pin `cupy-cuda12x<14` / `opencv-python-headless<4.10`.
+
+---
+
+## Source patch — `RecvBucketManager` stub (deepspeed-only build)
+
+`roll/distributed/strategy/vllm_strategy.py:14` unconditionally does
+`from mcore_adapter.models.converter.convert_utils import RecvBucketManager`, and
+that module does `from megatron.core import mpu` at load. With megatron-core not
+installed (smoke), importing `VllmStrategy` (the `actor_infer` role) would die
+with `ModuleNotFoundError`. This is the exact blocker Midway hit at smoke v5.
+
+Fix (applied to the tree): wrap the import in `try/except ImportError` with a
+minimal stub. `VllmStrategy` only ever calls `RecvBucketManager()` and `.clear()`;
+`process_bucket()` is the megatron→vllm weight-sync path, unreachable with a
+deepspeed actor, so the stub raises `NotImplementedError` there. Verified: with
+the stub, `from roll.pipeline.agentic.agentic_pipeline import AgenticPipeline`
+imports cleanly.
+
+Patches the venv path does **not** need (that the Midway source-install did):
+- **log_monitor `gcs_publisher`** shim — that was a ray ≥2.48 API change; at the
+  pinned `ray 2.46.0` ROLL's `log_monitor.py` works unmodified.
+
+---
+
+## The three Polaris files (analogs of the Midway trio)
+
+| File | Role | Key differences from Midway |
+|---|---|---|
+| `examples/tictactoe/agentic_val_tictactoe_selfplay_polaris_smoke.yaml` | hydra config (Qwen2.5-0.5B, deepspeed ZeRO-2, 3 steps, tensorboard) | `pretrain` → eagle model store; vLLM `gpu_memory_utilization` 0.5 → **0.3** (40 GiB A100 vs 140 GiB H200) |
+| `examples/tictactoe/run_agentic_pipeline_tictactoe_selfplay_polaris.sh` | in-job launcher | NO container/`--nv`. Keeps Ray cleanup; adds `set -o pipefail`; the libcuda `LD_PRELOAD` now finds the **host** driver via `ldconfig` (no `/.singularity.d/libs`), kept as harmless insurance |
+| `scripts/train_polaris.pbs` | PBS wrap | `#PBS` directives; `-l filesystems=home:eagle`; module-load conda + `CUDA_HOME=cuda-12.4.1` + `CC/CXX=gcc-12`; venv activate; TMPDIR on node-local SSD; caches on eagle; `HF_HUB_OFFLINE=1`; `PYTHONPATH=repo` (no `mcore_adapter/src` — stub covers it) |
+
+**deepspeed JIT build prerequisites (the trickiest wrap detail).** deepspeed
+JIT-compiles `fused_adam` on first use via `nvcc` + a host gcc. We set
+`CUDA_HOME=/soft/compilers/cudatoolkit/cuda-12.4.1` (nvcc 12.4.131, exact match to
+torch's cu124) and **override** the conda module's `CC=gcc-14` with
+`CC=/usr/bin/gcc-12` (`g++-12`): gcc-12 is ≥9 (deepspeed's floor) and ≤13.2 (CUDA
+12.4 nvcc's host-compiler cap). The conda module's gcc-14 would be rejected by
+nvcc 12.4. (We do NOT add the toolkit's `lib64` to `LD_LIBRARY_PATH` — torch's
+bundled cu124 libs must win at runtime.)
+
+---
+
+## Validation ladder
+
+1. **Toolchain probe (login-node equivalent of the handoff's probe job).** ✅
+   The venv imports the full stack and the ROLL agentic pipeline; hydra
+   `compose()` + `from_dict(AgenticConfig, …)` resolves and schema-validates the
+   smoke config. (No separate `probe_container_polaris.pbs` is needed on the
+   native path — there's no container to test; `nvidia-smi`/GPU torch are
+   exercised by the smoke job's own preamble.)
+2. **Smoke (deepspeed, Qwen2.5-0.5B, 3 steps).** ⏳ **IN PROGRESS** — attempt 1
+   (job 7185571) hung on a bad node (zero cput, unkillable D-state — see the
+   decisions log); hardened the wrap for observability and resubmitted as
+   **job 7185610**. Result recorded below once it lands.
+3. **Scale / megatron.** Not started (optional).
+
+---
+
+## GREEN — MARSHAL smoke test (deepspeed) ✅ 2026-06-06
+
+**The MARSHAL tictactoe self-play training loop closed end-to-end on ALCF Polaris.**
+
+| Field | Value |
+|---|---|
+| PBS jid | **7186746** (`debug` queue) |
+| Node | `x3105c0s1b1n0` |
+| Config | `examples/tictactoe/agentic_val_tictactoe_selfplay_polaris_smoke.yaml` (Qwen2.5-0.5B-Instruct, deepspeed ZeRO-2, vLLM V1, **roles on distinct GPUs 0/1/2**, env_groups=2, val disabled) |
+| Steps | **3 / 3** — `pipeline step 0/1/2 finished` → `pipeline complete!` |
+| Training wallclock | step-0 start 21:39:39 → `pipeline complete!` 21:41:55 = **~2m16s** for 3 steps (total job ~8 min incl. tarball stage + model load) |
+| Real metrics (step 2) | `actor/pg_loss`, `actor/kl_loss=0.00144`, `actor/total_loss=0.000288`, `actor_train/grad_norm=1.463`, `critic/ref_log_prob/mean=-0.4618`, `system/tps=242.6`; self-play `env/TicTacToe/winner=1.0` |
+| **Checkpoint** | `results/.../7186746_20260606-213348/actor_train-0/checkpoint-2/` (**12 G** full DeepSpeed ckpt: `pytorch_model.bin`, ZeRO optimizer state, `zero_to_fp32.py`, tokenizer) + `pipeline/checkpoint-2/` |
+| **TensorBoard** | `results/.../7186746_20260606-213348/tensorboard/events.out.tfevents.1780781698.x3105c0s1b1n0.654630.0` (49 K) |
+| Exit | wrap log: **`Training exited with code: 0`** → `Cleanup complete`; job ended on its own (no qdel) |
+| Log | `results/.../7186746_20260606-213348/logs/custom_logs.log` ; wrap `logs/wrap_7186746.log` |
+
+**Artifact that proves the loop closed:** `pipeline complete!` (agentic_pipeline.py:381) after 3
+rollout→reference→advantage→DeepSpeed-REINFORCE→model_update cycles, a 12 G `checkpoint-2` on
+disk, non-trivial training metrics (grad_norm, kl_loss, tps) in TensorBoard, and the wrap's
+**`Training exited with code: 0`**.
+
+> Benign noise: during `ray.shutdown` a RequestScheduler prints `Fatal Python error:
+> PyGILState_Release` — it is AFTER `pipeline complete!`, does not affect the exit, and the wrap
+> still reports `Training exited with code: 0` and runs cleanup. (Contrast a *rollout* failure,
+> which DOES hang the driver — e.g. the val-cascade jid 7186742 sat 45 min until qdel'd.)
+
+### The full fix stack that got to GREEN (each layer was a separate failure — see decisions log)
+1. venv tarball → node-local SSD (eagle small-file `import torch` hang)
+2. `get_node_ip()` → `ray.util.get_node_ip_address()` (air-gapped compute, no 8.8.8.8)
+3. OpenBLAS/OMP thread caps =1 (`pids.max=4096`)
+4. `env_groups 16→2` (env-process fan-out)
+5. **1 worker/role, roles on distinct GPUs 0/1/2** (fit pids.max + cross-device weight-sync)
+6. persistent `TORCH_EXTENSIONS_DIR` + `MAX_JOBS=4` (fused_adam JIT vfork burst)
+7. `RAY_NUM_CPUS=16` (shrink Ray idle-worker pool)
+8. `roll/third_party/vllm/vllm_0_8_4/llm.py:update_parameter` `.cpu().float()` for V1 (defense)
+9. **distinct-GPU placement → NCCL broadcast weight-sync** (THE model_update fix; avoids vLLM-0.8.4 V1 tensor-serialization bug)
+10. `agentic_pipeline.py` skip validation when `eval_steps > max_steps` (fewer startup actors + no step-0 val crash)
+
+### Reproduce
+```bash
+cd /lus/eagle/projects/lighthouse-uchicago/members/mehta5/MARSHAL
+qsub -v MARSHAL_VENV_TARBALL=/lus/eagle/projects/lighthouse-uchicago/members/mehta5/marshal-train-venv.tar \
+     scripts/train_polaris.pbs
+```
+> Residual flakiness: the startup EAGAIN race vs `pids.max=4096` still loses ~half the time at
+> RolloutScheduler creation (a lost run hangs — qdel and resubmit). A clean fix would be an ALCF
+> ticket to raise the debug-node per-job cgroup `pids.max`.
+
+---
+
+## Decisions / changes log
+
+- **2026-06-04 → 06-05 — Orientation.** Confirmed we're on Polaris
+  (`polaris-login-02`, PBS). Found the handoff's container path blocked here (no
+  `.sif`, Aliyun registry unreachable, `container_extras/` `.gitignore`'d). Per
+  the user, pivoted to a **native venv** built from ROLL's pinned stack. Grounded
+  the approach in the ALCF Polaris docs (hardware, running-jobs, python/pytorch/
+  deepspeed pages). Corrected the account name to **`lighthouse-uchicago`** via
+  `sbank` (the handed-down "Uchicago-lighthouse" is rejected by PBS).
+- **2026-06-05 — Built `marshal-train` venv** on eagle (clean `venv` off
+  `conda/2025-09-25` base py 3.12.11). Installed torch 2.6.0+cu124, then the
+  vllm/ray/deepspeed trio, then pinned ROLL deps to their `requirements_common`
+  versions (downgrading the bleeding-edge transformers 5.10.2 → 4.51.2 etc.).
+  Verified the full ROLL agentic import surface.
+- **2026-06-05 — Patched `vllm_strategy.py`** with the `RecvBucketManager`
+  try/except stub (megatron-core absent on the deepspeed-only smoke). Confirmed
+  the log_monitor shim is unnecessary at ray 2.46.0.
+- **2026-06-05 — Authored the Polaris trio** (`*_polaris_smoke.yaml`,
+  `*_polaris.sh`, `train_polaris.pbs`); staged `Qwen2.5-0.5B-Instruct` to the
+  eagle model store; hydra dry-run validated.
+- **2026-06-05 — Submitted smoke** `qsub scripts/train_polaris.pbs` → first try
+  rejected (`Project Uchicago-lighthouse` not found); fixed `-A` to
+  `lighthouse-uchicago` → **job 7185571** queued on `debug`.
+- **2026-06-05 — Smoke attempt 1 (jid 7185571) HUNG on a bad node.** Queued ~73 min
+  (debug contention; comment `Insufficient amount of resource: queue_tags`), started
+  04:56 on `x3004c0s25b0n0`, then hung in the early wrap setup: `resources_used.cput
+  = 00:00:00`, no `ROLL_OUTPUT_DIR` created, PBS `.OU`/`.ER` empty (still buffered).
+  `run_count = 2`. `qdel` returned 0 but could **not** promptly reap it (job stayed
+  `R`, walltime kept advancing) — a process wedged in an uninterruptible (D-state)
+  syscall, the signature of a hung GPU / `nvidia-smi`. Conclusion: **bad node**, not
+  a setup flaw.
+  * Hardened `scripts/train_polaris.pbs` so the next run is diagnosable:
+    (a) `exec > >(tee logs/wrap_<jid>.log) 2>&1` streams the wrap's stdout/stderr to
+        a live eagle file (PBS only flushes `.OU`/`.ER` at job end, hiding early
+        hangs — watch with `tail -f logs/wrap_<jid>.log`);
+    (b) `timeout 60 nvidia-smi` so a wedged GPU can't hang the whole job;
+    (c) `>>> phase:` markers between setup stages to pinpoint where progress stops.
+- **2026-06-05 — Smoke attempt 2 (jid 7185610) ALSO hung — at `nvidia-smi`, on a
+  DIFFERENT node (`x3101c0s37b1n0`).** The live wrap log proved the env setup is
+  fully correct: modules loaded, venv activated (python 3.12.11, nvcc 12.4,
+  CC/CXX gcc-12), then hung at the `nvidia-smi` line — `timeout 60` did NOT rescue
+  it (unkillable D-state). Ran to walltime: `Exit_status -29`,
+  `resources_used.cput 00:00:01`, **`resources_used.ngpus 0`** (never engaged a
+  GPU), with a ~38-min prologue gap (R 06:11 → script 06:49). `nvidia-smi` resolves
+  correctly to `/usr/bin/nvidia-smi` (no rogue binary on `PATH`). Two different
+  nodes both wedging at nvidia-smi with zero GPU engagement ⇒ a **GPU/node-health
+  problem on the debug nodes**, not our build.
+  * Made the wrap fail-FAST + self-diagnosing so we never burn another full hour:
+    (a) `nvidia-smi` now runs fully backgrounded/detached — it can never block;
+    (b) a `timeout 180` **torch CUDA probe** aborts in ~3 min (exit 42) if the GPUs
+        aren't usable, and reports whether torch sees 4 A100s (the ngpus=0 question);
+    (c) line-buffered the live log (`stdbuf -oL tee`).
+- **2026-06-05 — Smoke attempt 3 (jid 7185629): GPUs are HEALTHY, but torch CUDA
+  init hangs.** Backgrounded `nvidia-smi` returned this time and showed **4 healthy
+  A100-SXM4-40GB** (driver 570.124.06 / CUDA 12.8, idle, ECC clean) — so the GPUs
+  are fine and our env is correct. But the torch CUDA probe produced no output and
+  the fail-fast fired (`Exit_status 42` at 33 min, vs a full-hour hang). The old
+  probe was block-buffered (`python -c` without `-u`), so its progress prints were
+  lost when `timeout` killed it — couldn't tell which torch call blocked.
+- **2026-06-05 — Smoke attempt 4 (jid 7185641): wasted on a probe quoting bug.**
+  The inline `python -u -c '...'` had `\"`-escaped quotes inside bash single-quotes
+  → `SyntaxError`, so the probe failed instantly (rc=1) without testing torch.
+  Fix: moved the probe to **`scripts/polaris_gpu_probe.py`** (granular, unbuffered,
+  per-step elapsed timestamps) and the wrap now runs `python -u scripts/polaris_gpu_probe.py`.
+  Validated locally first (login node: `import torch` works but takes **47 s** —
+  quantifying the eagle/Lustre slowness behind the long startups; `is_available=False`
+  → exit 3 as expected).
+- **2026-06-05 — Smoke attempt 5 (jid 7185650): `import torch` itself HANGS on the
+  compute node.** Clean granular result: `[probe +0.0s] python started`, then NOTHING
+  — `import torch` never completed within the 300 s timeout (`rc=124`). On the LOGIN
+  node the same import takes **47 s** and completes. So the eagle-resident venv loads
+  catastrophically slowly (or hangs) on compute nodes. GPUs are healthy (attempt 3),
+  the env is correct. Node `x3101c0s37b1n0` (also attempt 2); with `x3005` (attempt 3,
+  also hung in torch), ≥2 nodes hang in torch import/init. ⇒ **Polaris I/O (eagle
+  Lustre, poor at the many-small-files access pattern a Python venv hammers) or a
+  torch-CUDA-init hang — a system/environment issue, not our build.**
+  * **Likely fix to try:** stage the venv to the node-local RAID0 SSD (`/local/scratch`)
+    and import from there (the canonical ALCF remedy for "python env on Lustre is slow").
+- **2026-06-05 — Root cause CONFIRMED: eagle small-file latency, not the GPUs/torch.**
+  Measured on the login node: a single 988 MB model read off eagle = **3 s (422 MB/s)**
+  — big sequential reads are fast — but copying the venv's **71,700 files** off eagle
+  took **1137 s (~19 min)**. So Lustre is fine for big files and catastrophic for the
+  many-small-file metadata storm `import torch` (thousands of `.so`/`.py` opens)
+  triggers on a cold compute node. The venv-on-eagle is the whole problem.
+  * Checked for a prior working Polaris venv convention to copy (upstream / CMU / the
+    `decrypto` port): **none exists** — `decrypto/polaris_handoff_prompt.md` is only a
+    handoff prompt (never executed; no `.pbs`, no venv). We're the first real Polaris
+    bring-up here, so the venv-location choice is ours.
+  * `/home` is writable (45 G quota, fits) but is ALSO Lustre (`/agile/home`) — same
+    small-file risk; `/soft` is fast but read-only. Only node-local SSD is both fast
+    and writable (but ephemeral, so it needs per-job staging).
+- **2026-06-05 — Solution: pack the venv into ONE tarball, stage to node-local SSD.**
+  Pre-packed the venv into a single 8.3 G tarball (`marshal-train-venv.tar`, 1165 s
+  one-time). The wrap now (restructured): sets up node-local `/local/scratch` early,
+  and if `MARSHAL_VENV_TARBALL` is set, reads that one big file (~20 s at 422 MB/s) +
+  extracts to local SSD (fast local writes), then runs from there — turning 71.7k slow
+  metadata ops into one fast sequential read, per job. Also added a `MARSHAL_VENV`
+  override + **manual `pyvenv.cfg`-based activation** (a relocated venv's `activate`
+  hardcodes the original path, so it must NOT be sourced). Keeps the proven torch-2.6
+  stack — no version juggling.
+- **2026-06-05 — Both parallel jobs killed by a BAD NODE, not our code.** jid 7185659
+  (home) and jid 7185664 (tarball→SSD) **both landed on `x3016c0s13b1n0`** and both ran
+  the full hour with **0-byte output / no wrap log** — the job script never executed
+  (stuck PBS prologue). So `x3016c0s13b1n0` is a bad node (broken prologue that eats the
+  whole walltime), and the scheduler kept re-assigning it (a broken node sits idle, so
+  it's always "available"). **The tarball fix is therefore UNTESTED** — neither job got
+  far enough to extract the tarball or run the probe. This is an **ALCF infrastructure
+  issue** (debug-node prologue hangs), not ours: the env, the stub, and the tarball
+  staging are all sound; we just can't get a healthy node to run them.
+  * Recurring symptom across the bring-up: long (~30 min) or stuck (full-hour) PBS
+    prologues on debug nodes, and `0-byte .OU` walltime kills (`Exit_status -29`).
+  * Resubmitted as **jid 7185695** (node `x3101c0s37b0n0`, a DIFFERENT node) — SAME
+    failure: full hour, 0-byte output, script never ran. So it is NOT one bad node.
+- **2026-06-05 — DIAGNOSIS: ALCF Polaris filesystem/prologue OUTAGE (not our code).**
+  `pbsnodes -l` shows MANY debug nodes offlined right now with filesystem/prologue
+  failures: "failed to mount filesystem", "failed mount check", "node offlined due to
+  script timeout", "offlined by hook 'prologue_hook' due to hook error" (x3009, x3014,
+  x3016 ×5, x3004, x3005, x3101, x3102, x3210, …). The debug queue is mostly Held
+  (12 Hld / 3 Run / 5 Que). Our jobs hang in the PBS **prologue's filesystem-mount
+  step** on the not-yet-offlined nodes → full-hour walltime kill with no script output.
+  This is a Polaris-wide infra problem (Lustre mount / prologue), fully independent of
+  our setup.
+  * **Action: stop resubmitting (futile until ALCF fixes it).** Wait for recovery /
+    file an ALCF ticket, then resubmit the (ready) tarball job:
+    `qsub -v MARSHAL_VENV_TARBALL=/lus/eagle/.../mehta5/marshal-train-venv.tar scripts/train_polaris.pbs`.
+    Everything on our side is built, staged, and verified — one `qsub` onto a healthy
+    node should close the loop (extract tarball → fast import → 3 steps → checkpoint).
+- **Observation across all attempts:** consistent **~26–38 min prologue gaps**
+  (PBS `R` → wrap script start) on every node, plus slow module/venv loads and a
+  47 s torch import — Polaris I/O / node-provisioning is sluggish right now,
+  independent of our setup.
+- **2026-06-06 — OUTAGE CLEARED; tarball fix PROVEN end-to-end.** `pbsnodes -l` down
+  to ~5 offline nodes (all isolated GPU-hardware faults — "Missing GPU", "Failed to
+  load GPU during boot" — none filesystem/prologue). Resubmitted jid **7186697**
+  (node `x3001c0s13b0n0`): started **immediately** (no prologue hang), and the
+  node-local-SSD tarball staging worked exactly as designed:
+  * tarball extracted **8.4 G → /local/scratch in 12 s** (vs ~19 min reading the
+    venv off eagle),
+  * **`import torch` in 1.5 s** (the cold-node import hang — gone),
+  * GPU probe **`CUDA COMPUTE OK` on A100-SXM4-40GB**, all 4 GPUs visible, rc=0,
+  * pipeline launched → Ray placement group `[[0,1,2,3]]` → tensorboard tracker →
+    `max_steps: 3` → wrapped ActorWorker to `ray.remote()`.
+  ⇒ The eagle-small-file root cause is **definitively solved**; the tarball approach
+  is the right pattern for any Python env on Polaris Lustre.
+- **2026-06-06 — Real blocker found & FIXED: ROLL's `get_node_ip()` needs the public
+  internet.** jid 7186697 then died in `AgenticPipeline.__init__` → `Cluster._create_workers`
+  → every `ActorWorker.__init__` raised:
+  ```
+  File "roll/distributed/executor/worker.py", line 100, in get_node_ip
+      s.connect(("8.8.8.8", 80))
+  OSError: [Errno 101] Network is unreachable
+  → ray.exceptions.ActorDiedError: actor_train-0:ActorWorker.__init__() failed
+  ```
+  ROLL resolved each worker's node IP by opening a UDP socket to **`8.8.8.8:80`**
+  (Google DNS) and reading the local sockname. **Polaris compute nodes are air-gapped**
+  (no route to the public internet) → "Network is unreachable" → all workers die at
+  construction → pipeline aborts. (The earlier `SIGABRT`/EAGAIN "Resource temporarily
+  unavailable" thread-spawn noise during Ray's worker-pool storm was a RED HERRING —
+  Ray recovered from it; this IP call was the actual killer. `ulimit -u` on login is
+  already 2 M, so the thread limit is not the bottleneck.)
+  * **Fix (`roll/distributed/executor/worker.py`):** resolve the IP via Ray itself —
+    `ray.util.get_node_ip_address()` (returns the same `10.201.0.71` Ray already uses,
+    no internet needed), falling back to the 8.8.8.8 trick then `gethostbyname(hostname)`
+    only if that fails. Grep confirms this was the **only** `8.8.8.8` call site in the repo.
+  * Note: `roll/` is imported from the **repo on eagle** (PYTHONPATH = PROJECT_ROOT),
+    NOT from the venv tarball — so source patches like this and the `RecvBucketManager`
+    stub are picked up on the next `qsub` with **no tarball rebuild**.
+  * Resubmitted as jid **7186701** (node `x3006c0s13b0n0`) with the fix in place.
+- **2026-06-06 — Next blocker found & FIXED: thread/process explosion (cgroup pids.max),
+  not OOM.** jid 7186701 got *much* further with the IP fix — Ray came up clean
+  (`GPU: 4.0, CPU: 64`), and ALL 9 workers were constructed (`actor_train-0..3`,
+  `actor_infer-0..3`, `reference-0`) — then `reference-0` died:
+  `ActorDiedError ... Worker exit type: SYSTEM_ERROR ... connection error code 2`.
+  Ray's generic message lists OOM/SIGKILL/SIGSEGV as candidates, but the worker's own
+  stdout named the real cause explicitly:
+  ```
+  (reference-0) OpenBLAS blas_thread_init: pthread_create failed for thread 26 of 64:
+      Resource temporarily unavailable
+  (reference-0) ... ensure that your address space and process count limits are big enough
+  (reference-0) ... or set a smaller OPENBLAS_NUM_THREADS to fit into what you have available
+  (reference-0) ... RLIMIT_NPROC 2060880 current, 2060880 max
+  ```
+  Each of the 9 colocated worker processes spawns **64 OpenBLAS threads** (one per
+  hardware thread) + 64 OMP + torch/Ray/CUDA threads. 9× that exceeds the PBS job's
+  **cgroup `pids.max`** → `pthread_create` returns EAGAIN → the last worker to start
+  (`reference-0`) aborts. **Not OOM** (0.5B model, 512 GiB RAM) and **not** the
+  `ulimit -u` nproc limit (`RLIMIT_NPROC` is already ~2 M) — it's the cgroup thread
+  cap, which we cannot raise. (The earlier scattered SIGABRTs — `posix_thread::start_thread`
+  in `CoreWorker::HandleExit` — were the same EAGAIN hitting *surplus pool* workers on
+  exit; non-fatal until it finally hit a real worker.)
+  * **Fix (`run_agentic_pipeline_tictactoe_selfplay_polaris.sh`):** cap every process's
+    CPU thread pools before launching python (so all Ray workers inherit it before their
+    first numpy/OpenBLAS import) — `OMP_NUM_THREADS=OPENBLAS_NUM_THREADS=MKL_NUM_THREADS=
+    NUMEXPR_NUM_THREADS=VECLIB_MAXIMUM_THREADS=RAYON_NUM_THREADS=4`, `TOKENIZERS_PARALLELISM=false`.
+    Smoke perf is irrelevant; this keeps total threads well under the cgroup cap.
+  * Resubmitted as jid **7186704** with the thread caps in place.
+- **2026-06-06 — Thread caps WORKED but exposed the real wall: too many PROCESSES
+  (env fan-out) vs cgroup pids.max.** jid 7186704 got the furthest yet — real workers
+  survived (`ActorDiedError`=0), `actor_train` reached **DeepSpeed init + JIT-compiling
+  `fused_adam`** via `nvcc -ccbin /usr/bin/gcc-12` (our CUDA-12.4/gcc-12 toolchain,
+  working). OpenBLAS now tried only "thread 1 of **4**" (cap took effect, down from 64) —
+  but **even 4 threads/process still failed** with EAGAIN, and the compile died on:
+  ```
+  gcc-12: fatal error: cannot execute '.../cc1plus': vfork: Resource temporarily unavailable
+  → RayTaskError(ImportError): ActorWorker.initialize() ... fused_adam jit_load failed
+  ```
+  Process census on the node: **112 `RequestScheduler` + 69 `_QueueActor` + 11 `ActorWorker`
+  ≈ 190 Ray processes**. The agentic pipeline spawns one RequestScheduler + _QueueActor
+  **per environment instance** = `env_groups * group_size` = (16×4 train)+(16×1 val) = 80
+  envs. That many processes' combined threads exhaust the PBS job's **cgroup pids.max**, so
+  `pthread_create`/`vfork` fail regardless of per-process thread caps. (`RLIMIT_NPROC` is
+  ~2 M — NOT the limit; the cgroup pids cap is, and we can't raise it.) Confirms the earlier
+  reasoning: cut the BLAS threads (done) AND cut the process count.
+  * **Fix 1 — slash env fan-out (`*_polaris_smoke.yaml`):** `env_groups 16→2` + matching
+    `n_groups [16]→[2]` for both train & val (kept `group_size`). 80 envs → 10 → ~35 total
+    processes. Verified safe against `agentic_config.py`: the only asserts are
+    `max_traj_per_env >= traj_per_env` (auto-satisfied; it defaults to `traj_per_env`), and
+    reducing env_groups just raises `traj_per_env` (more sequential trajectories/env). Smoke
+    only needs the loop to close, so parallel-env count is irrelevant.
+  * **Fix 2 — persist the JIT build (`train_polaris.pbs`):** `TORCH_EXTENSIONS_DIR=$BASE/torch_extensions`
+    (compile `fused_adam` once, cache on eagle, every later rank/job loads the `.so` instead
+    of re-forking a compiler) + `TORCH_CUDA_ARCH_LIST=8.0` (target only A100/sm_80; also
+    silences the in-worker "TORCH_CUDA_ARCH_LIST is not set" warning).
+  * Resubmitted as jid **7186707** (node `x3001c0s7b1n0`).
+- **2026-06-06 — env_groups reduction did NOT help; STOPPED GUESSING and MEASURED the
+  limit.** jid 7186707 (env_groups=2) died the same way — `RolloutScheduler.__init__`
+  (`rollout_scheduler.py:42`) → `RequestScheduler`/`val_env-0`: `thread: Resource
+  temporarily unavailable` → `ActorDiedError`. Reading `rollout_scheduler.py`: each
+  RolloutScheduler creates exactly **one** RequestScheduler actor (2 total, train+val),
+  so the "~110 RequestScheduler" earlier was log-LINE count from one chatty actor, not
+  processes — env_groups was never the driver. So I submitted a tiny diagnostic
+  (`scripts/polaris_limits_probe.pbs`, jid **7186710**, node x3007) that dumps the cgroup
+  limits + a live thread-spawn test. **Result (definitive):**
+  ```
+  /proc/self/cgroup: 0::/jobs/7186710
+  /sys/fs/cgroup/jobs/7186710/pids.max   = 4096      # whole-job thread+proc cap
+  /sys/fs/cgroup/jobs/7186710/cpu.max    = 6000000 100000   # = 60 cores
+  /sys/fs/cgroup/jobs/7186710/memory.max = 515396075520     # 512 GiB (not the issue)
+  ulimit -u = 2060880 (RLIMIT_NPROC — red herring), open files (-n) = 16384
+  practical test: clone failed after 4093 threads: "can't start new thread"
+  ```
+  ⇒ **The PBS job cgroup hard-caps the entire job at `pids.max=4096` threads/processes.**
+  It is root-owned (parent `/jobs` is `pids.max=max`); we cannot raise it from inside the
+  job. Every vLLM/DeepSpeed/CUDA/NCCL/gRPC worker spawns dozens–hundreds of threads that
+  `OMP_NUM_THREADS` does NOT govern, so 9 GPU workers (4 train + 4 infer + 1 reference at
+  4 GPUs) cross 4096 — especially during the fused_adam compile burst. This single fact
+  explains every EAGAIN we chased (OpenBLAS-64, OpenBLAS-4, RequestScheduler, reference-0,
+  the compile vfork): all were the 4096 ceiling hit at different thread counts.
+  * **Fix — fit under 4096 by shrinking GPU fan-out (`*_polaris_smoke.yaml`):**
+    `num_gpus_per_node 4 → 1`. Roles become 3 colocated workers (actor_train + actor_infer
+    + reference all on GPU 0 — ROLL's colocate design supports this), ~1/4 the threads, well
+    under the cap. 0.5B model fits trivially (vLLM gpu_mem_util=0.3). CLAUDE.md sanctions
+    "smallest model on 1–2 GPUs" for the smoke.
+  * Kept: thread caps (OMP=4…), env_groups=2, persistent TORCH_EXTENSIONS_DIR, IP fix, stub.
+  * Resubmitted as jid **7186711** (node `x3001c0s19b1n0`).
+  * NOTE for scale-up: the 4-GPU / megatron path needs the per-job thread budget kept under
+    4096 — fewer threads/process and/or an ALCF ticket to raise the job cgroup `pids.max`.
+- **2026-06-06 — 1 GPU cleared ALL infra blockers; reached the training loop. Next (last)
+  blocker: vLLM V1 weight-sync.** jid 7186711 (1 GPU) sailed through everything: fused_adam
+  JIT-compiled & cached to `$TORCH_EXTENSIONS_DIR` on eagle, DeepSpeed ZeRO-2 engine init,
+  vLLM loaded the model (`GPU KV cache size: 721,696 tokens`) — then died at the first
+  **model_update** (push DeepSpeed actor weights → vLLM engine):
+  ```
+  base_pipeline.py:68 model_update → model_update_group.py:152
+  deepspeed_strategy.py:397 model_update → vllm_strategy.py:365 update_parameter
+  third_party/vllm/vllm_0_8_4/llm.py:210  self.collective_rpc("update_parameter", args=(... CUDA weight ...))
+  vllm/v1/engine/core_client.py _send_input
+  TypeError: can't convert cuda:0 device type tensor to numpy. Use Tensor.cpu() ...
+  ```
+  Root cause: ROLL's per-parameter `update_parameter` (llm.py:209) has **no V1 branch** — it
+  passes the CUDA weight straight to `collective_rpc`. Under the vLLM **V1** engine the engine
+  core runs in a separate process and msgpack-serializes RPC args ⇒ GPU tensor can't serialize.
+  Only the *bucket* path (`update_parameter_in_bucket`, llm.py:213) does `.cpu().tolist()` for
+  V1; the path the DeepSpeed strategy uses does not. So ROLL's weight-sync requires the **V0**
+  engine (in-process workers, CUDA tensors broadcast via NCCL). **Midway never set VLLM_USE_V1**
+  (grep: absent everywhere) — its vLLM defaulted to V0, so the bug never fired; ours defaults
+  to V1.
+  * **Fix (`run_..._polaris.sh`):** `export VLLM_USE_V1=0` (before vLLM import; inherited by the
+    Ray actor_infer worker). Also added `MAX_JOBS=4` (cap ninja's compile-burst for any future
+    JIT) + `TORCH_CUDA_ARCH_LIST` default.
+  * Bonus: 7186711 left a built `fused_adam.so` in the persistent `$TORCH_EXTENSIONS_DIR`, so
+    every later run LOADS it (no compile burst at all).
+  * Resubmitted as jid **7186716** (node `x3001c0s7b0n0`) — V0 engine + cached fused_adam.
+- **2026-06-06 — pids.max=4096 is a TIGHT fit even at 1 GPU; added real headroom.** jid 7186716
+  (1 GPU + V0 + cached fused_adam) died EARLIER than 7186711 — at `RolloutScheduler.__init__`
+  (`rollout_scheduler.py:42`), its RequestScheduler/EnvironmentWorker hitting the same EAGAIN.
+  Same config as 7186711 (which reached model_update) ⇒ **success was luck**: the startup
+  "thundering herd" (~17 processes importing torch/vLLM/scipy and spawning threads at once)
+  peaks near 4096 and intermittently kills a critical actor. Needed margin, not luck.
+  * Diagnosis of the biggest thread source: **Ray prestarts ~one idle worker per detected CPU
+    (~64)**, each carrying ~30+ Ray threads (the contiguous-pid SIGABRT blocks we saw on exit).
+    That idle pool alone is ~2000 threads.
+  * **Fix (`run_..._polaris.sh`):** `RAY_NUM_CPUS=16` — ROLL's `start_ray_cluster()` (initialize.py:45)
+    forwards it to `ray start --num-cpus`, shrinking the idle pool ~4× (ample for our ~10 CPU
+    actors). Plus dropped the BLAS/OMP caps **4 → 1** (`OMP/OPENBLAS/MKL/NUMEXPR/VECLIB/RAYON=1`)
+    for max per-process thread reduction — smoke needs no CPU math throughput.
+  * Resubmitted as jid **7186717** (node `x3001c0s7b1n0`) — 1 GPU + V0 + cached fused_adam +
+    RAY_NUM_CPUS=16 + single-thread BLAS.
+- **2026-06-06 — V0 was the wrong fix for the TypeError: it's THREAD-HEAVIER than V1. Keep V1,
+  patch the weight-sync instead.** jid 7186717 confirmed `RAY_NUM_CPUS=16` applied (`ray start
+  ... --num-cpus=16`, `'CPU': 16.0`) and OMP=1 — yet STILL died at `RolloutScheduler.__init__`
+  (EAGAIN), *earlier* than the V1 run 7186711 (which reached model_update). The discriminating
+  variable is the engine: **vLLM V0 spawns markedly more startup threads than V1**, so under
+  pids.max=4096 V0 dies before training while V1 reaches the loop. So forcing V0 (to dodge the
+  model_update TypeError) was counterproductive.
+  * **Correct fix = keep V1 + fix the one V1-incompatible call.** DeepSpeed `model_update` has
+    two transfer paths: NCCL `collective.broadcast` (GPU tensor, serialization-free, V1-safe)
+    and a **P2P** path `update_parameter.remote(weight=<cuda tensor>)`. In our 1-GPU *colocated*
+    setup (train & infer both on GPU 0) it takes the P2P path, and ROLL's
+    `vllm_0_8_4/llm.py:update_parameter` passed the CUDA tensor straight into `collective_rpc`
+    → V1 cross-process msgpack can't serialize a GPU tensor → the TypeError. Receiver
+    (`worker_helper.py:update_parameter` → vLLM `load_weights`) copies a CPU-source tensor into
+    the GPU param fine, so the fix is one-sided.
+  * **Patch (`roll/third_party/vllm/vllm_0_8_4/llm.py`):** in `update_parameter`, when
+    `envs.VLLM_USE_V1`, `.cpu()` any tensor in args/kwargs before `collective_rpc` (mirrors the
+    `.cpu()` the bucket path already does). Reverted launcher to `VLLM_USE_V1=1`.
+  * Kept all headroom knobs (1 GPU, RAY_NUM_CPUS=16, OMP=1, env_groups=2, cached fused_adam).
+  * Resubmitted as jid **7186720**.
+- **2026-06-06 — `.cpu()` advanced the error (cuda → bf16); up-cast to float32 to finish it.**
+  jid 7186720 (V1 + .cpu() patch) cleared worker creation (the single RequestScheduler EAGAIN
+  was non-fatal — Ray recovered), reached DeepSpeed ZeRO-2 init + vLLM load + KV cache, and the
+  `.cpu()` patch turned the model_update error from "can't convert cuda:0 ... to numpy" into a
+  NEW one: `TypeError: Got unsupported ScalarType BFloat16`. Cause: vLLM V1's serializer uses
+  `tensor.numpy()`, and **numpy has no bfloat16** (the exact reason the bucket path avoids numpy).
+  * **Patch refinement (`vllm_0_8_4/llm.py:update_parameter`):** also up-cast bf16/fp16 → float32
+    on the host before `collective_rpc` (lossless for bf16; float32 represents every bf16 value).
+    The receiver's `load_weights` copies it back into the bf16 GPU param, casting. The advancing
+    error chain (cuda→bf16→[expected: pass]) confirms the mechanism is correct.
+  * Resubmitted as jid **7186727** — V1 + full bf16-safe weight-sync patch.
+- **2026-06-06 — The per-parameter V1 serialization is unwinnable; route weight-sync through
+  NCCL broadcast instead (place roles on DISTINCT GPUs).** After winning the startup race
+  (jid 7186732), the `.cpu().float()` patch cleared cuda+bf16 — but a THIRD layer appeared:
+  `qwen2.py:409 load_weights: assert loaded_weight.shape... AttributeError: 'list' object has
+  no attribute 'shape'`. vLLM 0.8.4's `serial_utils.MsgpackEncoder.enc_hook` does
+  `self._encode_ndarray(obj.numpy())` for a tensor, but the **decoder only reconstructs a
+  tensor when the RPC arg is type-hinted** (`dec_hook(t, obj)`); ROLL's generic `collective_rpc`
+  args aren't, so the receiver gets a raw list. This is the "bug in encoder/decoder of vllm
+  084" the bucket-path comment names — the per-parameter path is simply not V1-serializable.
+  * **Real fix: avoid serialization entirely.** `model_update_group.make_comm_plan()` (line 85)
+    chooses **P2P** (`update_parameter.remote(weight=tensor)`, serialized) when src(train) and
+    tgt(infer) share `(node, gpu)`, and **NCCL broadcast** (`collective.broadcast`, no msgpack)
+    when they're on different GPUs. Our 1-GPU colocation forced P2P. Putting **actor_train=GPU0,
+    actor_infer=GPU1, reference=GPU2** (`device_mapping: [0]/[1]/[2]`, `num_gpus_per_node: 4`)
+    routes weight-sync over NCCL broadcast — V1-safe, no tensor ever serialized. Still only 3
+    GPU worker processes (same pids footprint as colocated-1-GPU), just spread across 3 of the
+    4 A100s. The `.cpu().float()` llm.py patch stays as defense for any residual P2P.
+  * Startup pids race (~50%, env/scheduler actors vs pids.max=4096) is orthogonal and remains —
+    retry past it; the cross-device weight-sync then lets model_update succeed.
+  * Resubmitted as jid **7186739** — roles on distinct GPUs (NCCL-broadcast weight-sync).
+- **2026-06-06 — `device_mapping` must be a STRING (ROLL eval()s it).** jid 7186739 died at config
+  parse: `TypeError: eval() arg 1 must be a string` — ROLL `eval()`s `device_mapping`, so a YAML
+  list `[0]` breaks it. Fix: quote them — `device_mapping: "[0]"` / `"[1]"` / `"[2]"`. (jid 7186742.)
+- **2026-06-06 — BREAKTHROUGH: NCCL-broadcast weight-sync WORKS; model_update fully cleared.**
+  jid 7186742 (distinct GPUs) won the startup race and ran:
+  ```
+  weight update progress: 100%|██████████| 290/290     <- all params synced, NCCL broadcast, NO serialization
+  model_update_end_onload / model_update_end_offload   <- model_update COMPLETED
+  val rollout progress(trajectory): 0/16               <- entered the rollout phase; vLLM generating
+  ```
+  The distinct-GPU placement routed weight-sync through `collective.broadcast` and the V1
+  serialization problem is GONE. It then died, but only as a **cascade**: the *validation*
+  RolloutScheduler's RequestScheduler had been killed earlier by the startup EAGAIN race, and the
+  step-0 eval's `get_batch` used that dead actor. So the lone remaining blocker is the startup
+  pids race — here it happened to hit the val scheduler.
+- **2026-06-06 — Disable validation for the smoke (fewer startup actors + removes a failure path).**
+  The loop evals at `global_step % eval_steps == 0`, and `0 % 100 == 0` fires an implicit step-0
+  eval; the val RolloutScheduler is also created unconditionally. With `eval_steps=100 > max_steps=3`
+  validation is meaningless for bring-up. **Patch (`agentic_pipeline.py`):** create `val_rollout_scheduler`
+  only when `eval_steps <= max_steps` (else `None`), and guard the eval block on it. This drops ~3
+  startup actors (better odds vs pids.max=4096) and removes the step-0 val crash. The training
+  rollout (which DOES run every step) + model_update (proven) should now reach the 3 steps + checkpoint.
+  * Resubmitted as jid **7186746** — distinct GPUs + val disabled.

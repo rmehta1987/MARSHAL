@@ -170,3 +170,5 @@ runs/
 # Midway: run outputs and container-layered pip packages (not source)
 /results/
 /container_extras/
+# Polaris: core dumps left by crashed/hung debug-node jobs (not source)
+core.*
