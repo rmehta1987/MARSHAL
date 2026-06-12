@@ -884,6 +884,7 @@ reached the wrap's probe phase.
 | `logs/wrap_7197427.log`, `logs/pids_census_7197427.csv`, `logs/thread_census_7197427.log`, `logs/nvidia-smi_7197427.txt`, `logs/7197427.*.OU/.ER`, `results/tictactoe_selfplay_polaris_megatron/7197427_*/` | 7197427 | debug | Megatron 3-step smoke, layout B, attempt 4 (trims + max_model_len) | **Successful — megatron GREEN** | 3 steps + `pipeline complete!`, megatron checkpoint `mp_rank_0{0..3}/model_optim_rng.pt` + `dist_optimizer` (14 G/rank), grad_norm 1.31→0.71, tps ~185–202, Exit_status 0, 11m54s. Census: pids.peak **4094/4096**, per-GPU maxima 23.3/25.2/22.1/21.8 GB. Thread census attributed 2120 threads to `ray::RequestScheduler` (its `multi_thread: 2048` Ray concurrency pool fills eagerly) |
 | `logs/wrap_7197442.log`, `logs/pids_census_7197442.csv`, `logs/thread_census_7197442.log`, `logs/nvidia-smi_7197442.txt`, `logs/7197442.*.OU/.ER`, `results/tictactoe_selfplay_polaris_megatron/7197442_*/` | 7197442 | debug | **20-step proof run** (megatron layout B + RequestScheduler pool patch), `..._megatron_20step.yaml` | **Successful — the scale-up GREEN** | 20/20 steps, `pipeline complete!`, Exit_status 0, **37m37s**; incremental `checkpoint-9` (written mid-run) + final `checkpoint-19` (`mp_rank_0{0..3}` + `dist_optimizer`, 106 G total); census pids.peak **2313**/4096 (pool patch: was 4094), per-GPU maxima 23.6/25.3/22.3/22.0 GB; tps to 282 |
 | `logs/wrap_7197445.log`, `logs/nvidia-smi_7197445.txt`, `logs/7197445.*.OU/.ER`, `results/tictactoe_selfplay_polaris_smoke/7197445_*/` | 7197445 | debug | 0.5B deepspeed smoke regression from the NEW megatron tarball + RequestScheduler pool patch | Successful | GREEN baseline intact after the env moved: 3/3 steps, `weight update progress: 100%` each step, `pipeline complete!`, `checkpoint-2` written (pruned to listing proof), Exit_status 0, 6m22s — and it won the startup race first try with the pool patch in effect |
+| `logs/wrap_7197546.log`, `logs/pids_census_7197546.csv`, `logs/thread_census_7197546.log`, `logs/nvidia-smi_7197546.txt`, `logs/7197546.*.OU/.ER`, `results/tictactoe_selfplay_polaris_megatron_long/7197546_*/logs/custom_logs.log` | 7197546 | preemptable | Megatron LONG run (400 steps, 12 h walltime, `..._megatron_long.yaml`), attempt 1 | Unsuccessful | New failure mode, NOT the pids race (census peak 2198/4096 — pool patch holding): TCPStore rendezvous-port collision at `setup_collective_group` during the model_update warmup — `RuntimeError: The server socket has failed to listen ... port: 49717 ... EADDRINUSE`. Root cause: `model_update_group.py:120` probes a free port (`get_free_port()`: bind(0)/close) on the src worker and the TCPStore binds it later — in the probe-to-bind window Ray's startup ephemeral-port churn re-claimed it. Same code passed 7197427/7197442/7197445 → ~1-in-6 transient; resubmitted unchanged per the retry-don't-debug discipline. Exited cleanly (code 1, 6m39s — pipefail worked). Positives banked: first run on a preemptable node (staging 14 s, probes green, queue wait ~3.5 h), auto-resume scan correctly chose fresh start |
 
 ## Decisions / changes log — megatron scale-up
 
@@ -1124,3 +1125,91 @@ plus the RequestScheduler pool patch.
   are now proven on Polaris from the same extended venv, and the GREEN
   baseline did not rot. Checkpoint pruned to `checkpoint_listing_proof.txt`
   per the established practice.
+
+# Megatron long production run (400 steps, ~10.5 h, preemptable) — started 2026-06-12
+
+Follow-on to the GREEN 20-step proof run (job 7197442): a 10–11 h production
+training run inside a 12 h walltime, per the long-run handoff. Single-axis
+discipline vs the proven 20-step config: only `max_steps` 20→400,
+`save_steps` 10→50, and env-driven `resume_from_checkpoint` change.
+
+## Plan and sizing (from measured data, before submission)
+
+- **Per-step time, recomputed from job 7197442's `custom_logs.log`:** init +
+  step 0 = 7m37s (job start 08:12:55 → `pipeline step 0 finished` 08:20:32);
+  steps 1–19 = 29m11s / 19 = **92.2 s/step average** (range 75–117 s; the
+  checkpoint-9 write cost ~26 s inside its step window, 08:33:41→08:34:07).
+- **Walltime math:** 400 × 92.2 s + 7m37s ≈ **10.4 h expected**; pessimistic
+  100 s/step ≈ 11.3 h → `walltime=12:00:00`. Training time lands in the
+  10–11 h target band.
+- **Queue fit (re-verified 2026-06-12 via `qstat -Qf`):** `preemptable`
+  (1–10 nodes, walltime ≤ 72:00:00, `max_run=[p:10]`, enabled/started) is the
+  only fit — `debug`/`debug-scaling` cap at 1 h, `prod` routes to ≥10 nodes.
+  Submitted with `#PBS -r y` (requeue on preemption).
+- **save_steps=50:** saves at steps 49,99,…,399 (`(step+1) % 50 == 0`,
+  base_pipeline.do_checkpoint), so the final step coincides with a save; a
+  preemption loses ≤ 50 steps ≈ 77 min. Disk: 8 saves × 53 G = 424 G worst
+  case vs ~1.0 TB project-quota headroom (`lfs quota -p 11644 /lus/eagle`:
+  8.948T used / 10T soft / 11T hard, 2026-06-12). ROLL has **no keep-last-N
+  option** (`checkpoint_config` only configures an uploader — checked
+  `roll/utils/checkpoint_manager.py` and the config schema), so superseded
+  saves are pruned manually mid-run, always keeping the newest two complete
+  saves plus the final.
+- **Resume semantics (code-read before trusting the flag):**
+  `resume_from_checkpoint` is `Union[bool, str]` and is consumed as a *path*
+  (`base_pipeline.py:45` joins it with `pipeline/`;
+  `ActorWorker.initialize` passes it to `megatron_strategy.load_checkpoint`,
+  which expects `iter_0000001/mp_rank_0{0..3}` + merged `dist_optimizer`
+  shards + `scheduler.pt` + `rng_state/` in ONE directory). A bare `true`
+  would crash. The per-rank saves are scattered across
+  `actor_train-{0..3}/checkpoint-N/`, so resume needs an assembled merge dir
+  — the layout `scripts/simlink_resume_dir.sh` (CMU's own tool) builds. The
+  long-run wrap auto-assembles `resume-checkpoint-<N>` from the latest
+  COMPLETE save at (re)start and exports `MARSHAL_RESUME_DIR`; the YAML reads
+  it via `${oc.decode:${oc.env:MARSHAL_RESUME_DIR,false}}`. Completeness =
+  pipeline `worker_state_pipeline.json` present (written only after all
+  cluster saves finish) AND all 4 `mp_rank_0*/model_optim_rng.pt` on disk.
+  The pipeline skip-loop (`agentic_pipeline.py:123`) then resumes at step
+  N+1; vllm/hf_infer roles inherit the base no-op `load_checkpoint` and
+  actor_infer is re-synced by the first `model_update`. The tracker re-logs
+  `state.log_history` into the new run's TensorBoard, preserving the full
+  metric history.
+- **Files authored** (proven 20-step trio untouched):
+  `examples/tictactoe/agentic_val_tictactoe_selfplay_polaris_megatron_long.yaml`
+  + `scripts/train_polaris_megatron_long.pbs`; the proven megatron launcher
+  is reused unchanged via its `MARSHAL_CONFIG_NAME` env hook.
+- **Pre-submit validation:** `bash -n`; a synthetic fixture test of the wrap's
+  resume scan/assembly (picks the latest complete save, skips an incomplete
+  one with a missing rank, assembles the full merged tree); hydra `compose()`
+  + `from_dict(AgenticConfig, …)` in BOTH modes. The dry-run caught a real
+  bug: `${oc.env:MARSHAL_RESUME_DIR,false}` resolves to the **string**
+  `'False'` (truthy — would wrongly enter the resume path); fixed with
+  `oc.decode`, after which fresh mode yields bool `False` and resume mode the
+  path string.
+
+## Decisions / changes log — long production run
+
+- **2026-06-12 — Long-run trio authored, validated, committed; attempt 1
+  submitted (job 7197546).** Queue wait 3h38m (qtime 13:19:52 → stime
+  16:58:03) on preemptable.
+- **2026-06-12 — Attempt 1 (job 7197546) lost to a NEW transient: TCPStore
+  rendezvous-port collision (EADDRINUSE).** All pre-flight phases passed on
+  the preemptable node `x3209c0s37b1n0` (9.7 G tarball staged in 14 s, both
+  probes rc=0, auto-resume correctly chose fresh start). During the
+  model_update warmup `setup_collective_group`, the driver died:
+  `RuntimeError: The server socket has failed to listen on any local network
+  address. port: 49717 ... EADDRINUSE`. Mechanism (code-read):
+  `model_update_group.py:make_collective_group` calls the src worker's
+  `get_free_port()` (bind(0), read port, close) and the TCPStore binds that
+  port later — in the probe-to-bind window, Ray's startup ephemeral-port
+  churn (gRPC mesh / NCCL bootstrap source ports come from the same kernel
+  ephemeral range) re-claimed it. NOT the pids race: census peak 2198/4096
+  (pool patch holding; 77 census rows). Job exited cleanly (code 1, 6m39s,
+  Exit_status 1) — pipefail and the fail-fast structure worked. The same
+  code passed 7197427/7197442/7197445 → measured ~1-in-6 transient.
+  **Action:** resubmitted unchanged as job **7197919** per the
+  retry-don't-debug discipline (single variable: race variance). **Held in
+  reserve** (evidence-driven, only if the signature recurs): re-range
+  `Worker.get_free_port()` to probe a static range below
+  `ip_local_port_range` (e.g. 20000–32000) so probed rendezvous ports cannot
+  collide with kernel-assigned ephemeral source ports.
