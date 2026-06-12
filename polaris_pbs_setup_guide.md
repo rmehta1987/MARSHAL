@@ -267,43 +267,130 @@ wrap log prints **`Training exited with code: 0`**.
 
 ---
 
-## Scaling to a more complex LLM (Qwen3-4B + Megatron)
+## Scaling to a more complex LLM (Qwen3-4B + Megatron) — the realized procedure
 
-The smoke proved the loop on a 0.5B model with one GPU per role. The real run uses
-**~8× the parameters** and a model that **won't fit on one A100**, which changes the
-shape of the job. (Plain-language companion: `polaris_scaleup_gpu_needs.md`.)
+The smoke proved the loop on a 0.5B model with one GPU per role. The scale-up
+(executed 2026-06-12, see `polaris_pbs_notes.md` "Megatron scale-up" for the full
+record) runs the configuration MARSHAL's real experiments use: **Qwen3-4B,
+`actor_train: megatron_train`, TP=4 + sequence_parallel + distributed optimizer +
+recompute=full** — the shape Midway proved GREEN (jid 50261211). It did NOT need
+the pids cap raised first: a 6-worker layout fits under `pids.max=4096`.
+(Plain-language companion: `polaris_scaleup_gpu_needs.md`.)
 
-- **Model split across all 4 GPUs of a node (tensor/pipeline parallel), not 1-per-role.**
-  Qwen3-4B is too big for a single 40 GiB A100, so the `megatron_train` strategy shards
-  one model across all 4 GPUs that act as one. Reference config to port:
-  `examples/tictactoe/agentic_val_tictactoe_selfplay_midway_megatron.yaml` (it was sized
-  for Midway's 140 GiB H200s — **expect to turn dials down** for 40 GiB A100s).
-- **The hard blocker is NOT the GPUs — it's `pids.max=4096`.** Ganging 4 GPUs per role
-  means ~4× the worker processes/threads of the smoke, which sails past the cap. Before
-  the scale-up can run reliably, **one of these must happen:**
-  - **File an ALCF ticket to raise the per-job cgroup `pids.max`** on the GPU nodes.
-    This is the clean fix (it's their setting) and the single thing most likely to
-    unblock the scale-up. Do this *first* — everything else waits on it.
-  - **Or trim the process/thread count further** (fewer parallel envs, leaner settings)
-    to squeeze under 4096 — possible but fiddly and limiting.
-- **The megatron toolchain must be installed** (deferred for the smoke):
-  `megatron-core`, `transformer-engine`, `apex`, and the local `mcore_adapter/` package
-  (`pip install ./mcore_adapter`), plus likely `flash-attn`. Once present, **remove the
-  `RecvBucketManager` stub reliance** (the real module loads), and add `mcore_adapter/src`
-  back to `PYTHONPATH` in the wrap. Rebuild the venv tarball after these adds.
-- **Memory will be tight on one node.** 4B + train copy + optimizer state + a vLLM
-  inference copy + a frozen reference, across 4×40 GiB = 160 GiB total. The setup leans
-  on roles **taking turns** (offload/onload) so they don't all need room at once. First
-  attempts will likely need: smaller `per_device_train_batch_size`, ZeRO-3 +
-  CPU-offload, lower vLLM `gpu_memory_utilization`, shorter `sequence_length`.
-  - **Fallback if one node won't fit: two nodes (8 GPUs).** Doubles memory and removes
-    the squeeze, at the cost of `-l select=2:...` and cross-node NCCL. **This is where
-    ALCF's multi-node AWS-OFI/NCCL fabric finally matters** — the smoke dodged it by
-    being single-node; the megatron multi-node path needs it configured (ALCF docs warn
-    a misconfigured fabric can hang Megatron-DeepSpeed). Fallback, not the starting point.
-- **Suggested order:** (1) get `pids.max` raised; (2) run 4B on **one node / 4 GPUs**
-  with megatron, lowering memory dials on the first one or two tries; (3) go to **two
-  nodes** only if one won't fit; (4) *then* worry about long runs and perf tuning.
+### Step 7 — Extend the venv with the megatron toolchain (one time, login node)
+
+Targets are the container-verified versions from `midway_notes.md`: megatron-core
+0.12.3, transformer-engine 2.2.0, flash-attn 2.7.2, apex@25.04, mcore_adapter
+0.6.0.dev0. The login node's per-user cgroup (`memory.max=8 GiB`, `pids.max=256`)
+governs everything here: keep `MAX_JOBS=2` and export single-thread BLAS caps for
+any python that imports numpy.
+
+```bash
+# Env for every step below:
+export VIRTUAL_ENV=$BASE/conda-envs/marshal-train PATH=$VIRTUAL_ENV/bin:$PATH
+export CUDA_HOME=/soft/compilers/cudatoolkit/cuda-12.4.1 CC=/usr/bin/gcc-12 CXX=/usr/bin/g++-12
+export PIP_CACHE_DIR=$BASE/pip_cache TMPDIR=$BASE/tmp TORCH_CUDA_ARCH_LIST=8.0
+export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1
+
+# 1) flash-attn: prebuilt wheel — cp312 + cu12 + torch2.6 + cxx11abiFALSE
+#    (match the ABI to torch._C._GLIBCXX_USE_CXX11_ABI, which is False here)
+pip install --no-deps https://github.com/Dao-AILab/flash-attention/releases/download/v2.7.2.post1/flash_attn-2.7.2.post1+cu12torch2.6cxx11abiFALSE-cp312-cp312-linux_x86_64.whl
+
+# 2) megatron-core — MUST be --no-deps (see trap below)
+pip install --no-deps megatron-core==0.12.3
+
+# 3) transformer-engine: core libs come as prebuilt wheels; only the torch
+#    bindings (26 C++ files) compile locally. cuDNN comes from the venv's own
+#    nvidia-cudnn-cu12 wheel — no cudnn module needed.
+export CUDNN_PATH=$VIRTUAL_ENV/lib/python3.12/site-packages/nvidia/cudnn
+NVTE_FRAMEWORK=pytorch CUDAARCHS=80 MAX_JOBS=2 \
+  pip install -v --no-build-isolation "transformer-engine[pytorch]==2.2.0"
+
+# 4) apex: ~50 min at MAX_JOBS=2, sm_80 only
+MAX_JOBS=2 NVCC_APPEND_FLAGS="--threads 1" \
+  pip install -v --no-cache-dir --no-build-isolation \
+  --config-settings "--build-option=--cpp_ext --cuda_ext --parallel 2" \
+  git+https://github.com/NVIDIA/apex.git@25.04
+
+# 5) mcore_adapter LAST (deps already satisfied -> --no-deps)
+pip install --no-deps --no-build-isolation ./mcore_adapter
+
+# 6) Re-verify ALL pins after EVERY step (the resolver bites — see traps):
+#    torch 2.6.0+cu124 / vllm 0.8.4 / ray 2.46.0 / deepspeed 0.16.4 /
+#    transformers 4.51.2 / tokenizers 0.21.4 / numpy 1.26.4
+
+# 7) Pack the NEW tarball; the GREEN fallback tarball stays untouched
+tar cf $BASE/marshal-train-megatron-venv.tar -C $BASE/conda-envs/marshal-train .
+```
+
+- **Unsuccessful approach: `pip install megatron-core==0.12.3` with deps.** The
+  resolver dragged in torch 2.12.0, numpy 2.4.6, triton 3.7 and a set of cu13
+  NVIDIA packages. Worse, the cu13 packages install into the *same*
+  `site-packages/nvidia/<lib>/` paths as torch's cu12 deps, so uninstalling them
+  deleted cu12 files and broke `import torch` (`libcudnn.so.9` missing). Recovery:
+  `pip install --force-reinstall torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0
+  "numpy<2.0"`, then `--no-deps` for megatron-core.
+- **Unsuccessful approach: building with `MAX_JOBS=16` on the login node.** cc1plus
+  was OOM-killed (`g++-12: fatal error: Killed signal terminated program cc1plus`)
+  by the 8 GiB per-user cgroup. `MAX_JOBS=2` passes.
+- **TE runtime needs two things or its import dies:** `CUDA_HOME` set (its
+  `_load_nvrtc()` globs there; the ldconfig fallback raises where ldconfig is off
+  PATH — and that `CalledProcessError` even escapes megatron.core's `except
+  ImportError` guard), and the venv's `site-packages/nvidia/{cudnn,cublas,
+  cuda_nvrtc,cuda_runtime,nccl}/lib` dirs on `LD_LIBRARY_PATH`
+  (libtransformer_engine.so links `libcudnn_adv.so.9` directly; torch doesn't
+  preload the cuDNN sub-libraries). Both are baked into
+  `scripts/train_polaris_megatron.pbs`.
+- **The `RecvBucketManager` stub stays in place** in `vllm_strategy.py` — with the
+  real mcore_adapter installed its `try` import wins (verified by module-name
+  assert) and the stub is dormant; the 0.5B smoke remains runnable from the old
+  tarball. mcore_adapter resolves **from the venv** (pip-installed, in the
+  tarball) — `mcore_adapter/src` is NOT added to PYTHONPATH (unlike the Midway
+  container); the repo's `mcore_adapter/` dir cannot shadow the installed package
+  (no `__init__.py` → namespace-package candidate only, regular package wins).
+
+### Step 8 — The layout that fits 40 GB A100s AND `pids.max=4096` (layout B)
+
+The Midway megatron config put all three roles on all 4 GPUs (12 GPU workers) —
+the measured-fail pids shape here. The port uses **layout B** in
+`agentic_val_tictactoe_selfplay_polaris_megatron.yaml`:
+
+| Role | device_mapping | Why |
+|---|---|---|
+| actor_train (megatron TP=4) | `"[0,1,2,3]"` | 4.0 B params × 18 B/param ≈ 72 GB training state ÷ 4 TP ranks ≈ 18 GB/GPU — fits with recompute=full activations |
+| actor_infer (vLLM) | `"[0]"` | 8 GB bf16 weights fit one A100; 1 worker instead of 4 saves hundreds of threads. `gpu_memory_utilization: 0.35` (= 14 GB: 8 weights + ~5.7 GB KV ≈ 40 k tokens at Qwen3-4B's ~144 KB/token) |
+| reference (hf_infer) | `"[1]"` | same single-worker pids logic |
+
+Six GPU workers total — between the smoke's proven 3 and the failed 9–12; the
+megatron wrap **measures** the actual pids + per-GPU memory every 5 s into
+`logs/pids_census_<jid>.csv`. Weight-sync goes through the NCCL-broadcast bucket
+path (with 4 distinct TP src ranks ROLL's comm-planner avoids P2P entirely;
+under vLLM V1 only bucket metadata is msgpack'd) — V1-safe by construction.
+Other essentials carried in the megatron launcher: `CUDA_DEVICE_MAX_CONNECTIONS=1`
+(megatron TP+SP ordering) and `NVTE_FUSED_ATTN=0`/`NVTE_FLASH_ATTN=1` (the Midway
+fix for TE's cuDNN fused-attention having no plan for Qwen3's GQA+SP graph).
+
+### Step 9 — Run it
+
+```bash
+cd $REPO
+qsub scripts/polaris_megatron_probe.pbs       # rung 2: on-GPU toolchain probe (~5 min)
+qsub scripts/train_polaris_megatron.pbs       # rung 3: the 3-step megatron smoke
+# watch: tail -f logs/wrap_<jid>.log ; results/tictactoe_selfplay_polaris_megatron/<jid>_*/logs/custom_logs.log
+```
+
+Success signature: HF→mca conversion completes → `weight update progress: 100%`
+→ `pipeline step 0/1/2 finished` → `pipeline complete!` → megatron-format
+checkpoint `checkpoint-2/iter_0000001/mp_rank_{00..03}/model_optim_rng.pt` →
+wrap log `Training exited with code: 0`. (Run outcomes + measured census: see the
+job ledger in `polaris_pbs_notes.md`.)
+
+- **The startup EAGAIN race still applies** (worse: 6 workers vs the smoke's 3).
+  A job hung at `RolloutScheduler.__init__` lost the race — `qdel`, resubmit. The
+  ALCF `pids.max` ticket (drafted in the notes) remains the durable fix.
+- **Two nodes is the fallback, not the plan.** Multi-node Ray + ALCF's
+  AWS-OFI/NCCL fabric is its own bring-up (the docs warn a misconfigured fabric
+  can hang Megatron-DeepSpeed); attempt only after exhausting single-node dials.
 
 ---
 

@@ -825,7 +825,14 @@ engineering proceeds in parallel per the plan above.
    `marshal-train-megatron-venv.tar` packed alongside the untouched GREEN
    fallback — details in the decisions log).
 2. **[debug] On-GPU toolchain probe** — new tarball staged; megatron stack
-   imports on-node; minimal flash-attn forward on the A100. Status: not started.
+   imports on-node; minimal flash-attn forward on the A100. Status:
+   **Successful** (job 7197416, node `x3004c0s1b0n0`, Exit_status 0: 10.25 G
+   tarball extracted in 16 s; torch + megatron.core + TE(+pytorch) +
+   flash_attn + apex(+CUDA exts) + mcore_adapter all imported in 14.5 s;
+   `flash_attn_func` bf16 forward and a TE LayerNorm executed on the A100;
+   stub-dormancy asserted on-node; probe-job pids.peak 83. Bonus finding:
+   `pids.peak` exists in the job cgroup on these nodes, so the census records
+   true peaks. Log: `logs/wrap_7197416.log`).
 3. **[debug] Megatron 3-step smoke** at layout B. Status: not started.
 4. **[debug or preemptable] 20-step proof run.** Status: not started.
 
@@ -863,6 +870,7 @@ reached the wrap's probe phase.
 | `logs/wrap_7186739.log`, `logs/nvidia-smi_7186739.txt`, `logs/7186739.*.OU/.ER` | 7186739 | debug | roles on distinct GPUs, first try | Unsuccessful | Config parse error: `device_mapping` was a YAML list; ROLL `eval()`s it — must be a string (`"[0]"`) |
 | `logs/wrap_7186742.log`, `logs/nvidia-smi_7186742.txt`, `logs/7186742.*.OU/.ER` | 7186742 | debug | distinct GPUs, strings fixed | Unsuccessful overall, but the BREAKTHROUGH run | `weight update progress: 100%` over NCCL broadcast (V1 serialization problem gone). Died in the step-0 *validation* cascade: the val RequestScheduler had been killed by the startup EAGAIN race; hung 45 min until qdel. Fix: skip val scheduler when `eval_steps > max_steps` |
 | `logs/wrap_7186746.log`, `logs/nvidia-smi_7186746.txt`, `logs/7186746.*.OU/.ER`, `results/tictactoe_selfplay_polaris_smoke/7186746_*/logs/custom_logs.log` | 7186746 | debug | 0.5B deepspeed smoke, roles on GPUs 0/1/2, val disabled | **Successful — the GREEN bring-up** | 3 steps, `pipeline complete!`, 12 G `checkpoint-2`, TensorBoard events, `Training exited with code: 0` |
+| `logs/wrap_7197416.log`, `logs/nvidia-smi_7197416.txt`, `logs/7197416.*.OU/.ER` | 7197416 | debug | Megatron-toolchain on-GPU probe (`scripts/polaris_megatron_probe.pbs`), new 10.25 G tarball | Successful | Rung 2: stack staged+imported on-node in 14.5 s, `flash_attn_func` bf16 forward + TE LayerNorm ran on the A100, stub dormant, pids.peak 83, Exit_status 0 |
 
 ## Decisions / changes log — megatron scale-up
 
@@ -961,3 +969,12 @@ reached the wrap's probe phase.
     reason CUDA_HOME must always be set (all wraps do).
   Tarball `marshal-train-megatron-venv.tar` packing from the 9.6 GB venv
   (was 8.7 GB); `marshal-train-venv.tar` (8.3 GB, GREEN fallback) untouched.
+- **2026-06-12 — RUNG 2 (on-GPU toolchain probe) PASSED — job 7197416.**
+  First job on the new `marshal-train-megatron-venv.tar`: extraction 16 s,
+  torch CUDA probe rc=0, the full megatron surface imported on-node in 14.5 s,
+  `flash_attn_func` (bf16, causal) and a TE LayerNorm executed on the A100,
+  and the on-node assert confirmed `vllm_strategy.RecvBucketManager` resolves
+  from `mcore_adapter.models.converter.convert_utils` (stub dormant).
+  pids: probe-only peak 83 of 4096; the job cgroup exposes `pids.peak` here,
+  so the smoke's census will record true peaks. Exit_status 0, ~3 min of
+  walltime. Proceeding to rung 3 (the layout-B megatron smoke).
