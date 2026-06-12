@@ -54,7 +54,7 @@ qsub -v MARSHAL_VENV_TARBALL=/lus/eagle/projects/lighthouse-uchicago/members/meh
 | Scheduler | **PBS Pro** (`qsub`/`qstat`/`qdel`), login host `polaris-login-02` |
 | Account (`-A`) | **`lighthouse-uchicago`** — NOT "Uchicago-lighthouse" (PBS rejects it); confirmed via `sbank-list-allocations` (alloc 12374, ~17,184 node-h available) |
 | Queue | `debug` (1–2 nodes, ≤1 h walltime) — used for the smoke. Also `debug-scaling` (1–10 nodes, 1 job/user), `prod` (routing, ≥10 nodes, 24 h) |
-| GPU | 4× NVIDIA **A100 40 GiB** (HBM2, sm_80) per node — far tighter than Midway's H200 (~140 GiB); re-confirmed on-node 2026-06-12 (decrypto job 7197265); there is no 80 GB partition |
+| GPU | 4× NVIDIA **A100 40 GiB** (HBM2, sm_80) per node — far tighter than Midway's H200 (~140 GiB); re-confirmed on-node 2026-06-12 (decrypto job 7197265, see the sibling port's notebook `../decrypto/polaris_pbs_notes.md`); there is no 80 GB partition |
 | CPU / RAM | AMD EPYC Milan 7543P, 32c/64t (`ncpus=64`), 512 GiB DDR4 |
 | Node-local scratch | pair of 1.6 TB SSDs in RAID0 (used for `TMPDIR`; mount assumed `/local/scratch`, wrap falls back to `/tmp`) |
 | Native CUDA | **12.4.1** (`/soft/compilers/cudatoolkit/cuda-12.4.1`, ALCF's PyTorch is built against it). Base conda ships torch 2.8.0 (cu128) → driver supports ≥ CUDA 12.8, so our cu124 wheels are safe |
@@ -836,7 +836,12 @@ engineering proceeds in parallel per the plan above.
 3. **[debug] Megatron 3-step smoke** at layout B. Status: **Successful**
    (job 7197427, 2026-06-12, after 3 prior attempts: two startup-race losses
    and one vLLM `max_model_len` fix — see the decisions log and ledger).
-4. **[debug or preemptable] 20-step proof run.** Status: not started.
+4. **[debug or preemptable] 20-step proof run.** Status: **Successful**
+   (job 7197442, 2026-06-12, `debug`: walltime math from the 3-step smoke
+   predicted ~47 min worst case vs the 60 min cap — measured 37m37s. 20/20
+   steps, two incremental megatron checkpoints, pids.peak 2313 with the
+   RequestScheduler pool patch. Preemptable was held in reserve and not
+   needed.)
 
 ## Job ledger — every Polaris log file, its job, and its outcome
 
@@ -877,6 +882,7 @@ reached the wrap's probe phase.
 | `logs/wrap_7197421.log`, `logs/pids_census_7197421.csv`, `logs/nvidia-smi_7197421.txt`, `logs/7197421.*.OU/.ER`, `results/tictactoe_selfplay_polaris_megatron/7197421_*/logs/custom_logs.log` | 7197421 | debug | Megatron 3-step smoke, layout B, attempt 2 (unchanged resubmit) | Unsuccessful, but won the race and isolated the next blocker | Startup race won; HF→mca conversion measured FAST (~17 s/rank); vLLM EngineCore then refused to start: `max seq len (40960)` needs 5.62 GiB KV > 2.89 GiB available at util 0.35 — vLLM defaults `max_model_len` to Qwen3-4B's 40960 max_position_embeddings. Fix: `max_model_len: 8192` in the vLLM strategy_config. (Census pids columns read 0 on this node — wrap now derives the cgroup from `/proc/self/cgroup`) |
 | `logs/wrap_7197423.log`, `logs/pids_census_7197423.csv`, `logs/nvidia-smi_7197423.txt`, `logs/7197423.*.OU/.ER`, `results/tictactoe_selfplay_polaris_megatron/7197423_*/logs/custom_logs.log` | 7197423 | debug | Megatron 3-step smoke, layout B, attempt 3 (max_model_len fix) | Unsuccessful | Lost the startup pids race again: census peak 3938/4096, `actor_train-0` EAGAIN at NCCL watchdog during `initialize()`. Race record now 1 win / 2 losses at layout B. Exited cleanly (code 1). Prompted the thread-trim package (RAY_NUM_CPUS 16→8, TORCH_NCCL_ENABLE_MONITORING=0, NCCL socket thread caps) + thread-owner census |
 | `logs/wrap_7197427.log`, `logs/pids_census_7197427.csv`, `logs/thread_census_7197427.log`, `logs/nvidia-smi_7197427.txt`, `logs/7197427.*.OU/.ER`, `results/tictactoe_selfplay_polaris_megatron/7197427_*/` | 7197427 | debug | Megatron 3-step smoke, layout B, attempt 4 (trims + max_model_len) | **Successful — megatron GREEN** | 3 steps + `pipeline complete!`, megatron checkpoint `mp_rank_0{0..3}/model_optim_rng.pt` + `dist_optimizer` (14 G/rank), grad_norm 1.31→0.71, tps ~185–202, Exit_status 0, 11m54s. Census: pids.peak **4094/4096**, per-GPU maxima 23.3/25.2/22.1/21.8 GB. Thread census attributed 2120 threads to `ray::RequestScheduler` (its `multi_thread: 2048` Ray concurrency pool fills eagerly) |
+| `logs/wrap_7197442.log`, `logs/pids_census_7197442.csv`, `logs/thread_census_7197442.log`, `logs/nvidia-smi_7197442.txt`, `logs/7197442.*.OU/.ER`, `results/tictactoe_selfplay_polaris_megatron/7197442_*/` | 7197442 | debug | **20-step proof run** (megatron layout B + RequestScheduler pool patch), `..._megatron_20step.yaml` | **Successful — the scale-up GREEN** | 20/20 steps, `pipeline complete!`, Exit_status 0, **37m37s**; incremental `checkpoint-9` (written mid-run) + final `checkpoint-19` (`mp_rank_0{0..3}` + `dist_optimizer`, 106 G total); census pids.peak **2313**/4096 (pool patch: was 4094), per-GPU maxima 23.6/25.3/22.3/22.0 GB; tps to 282 |
 
 ## Decisions / changes log — megatron scale-up
 
@@ -1065,3 +1071,45 @@ trim package), 7197427 (GREEN at 2 threads of margin).
 cd /lus/eagle/projects/lighthouse-uchicago/members/mehta5/MARSHAL
 qsub scripts/train_polaris_megatron.pbs   # defaults to marshal-train-megatron-venv.tar
 ```
+- **2026-06-12 — RequestScheduler pool patch verified live (job 7197442,
+  20-step run).** With `generate_scheduler.py`'s `multi_thread` concurrency
+  group reduced 2048 → 256, the 20-step run's startup peak measured
+  **2177 of 4096** (vs 4094 on the GREEN smoke) and the RequestScheduler
+  process owns 328 threads (vs 2120). The startup EAGAIN race that consumed
+  attempts 7197419/7197423 (and ~half of all 0.5B-smoke submissions during
+  the bring-up) is resolved by an attributable, in-repo, one-line change —
+  not by raising the cap. The ALCF ticket remains worth filing as hygiene
+  for larger future layouts.
+
+## GREEN — 20-step megatron proof run — Successful, 2026-06-12
+
+The Polaris analog of Midway's GREEN scale-up (jid 50259767), completing the
+mission's Phase 2: same layout-B megatron config as the 3-step GREEN, only
+`max_steps` 3 → 20 and `save_steps` 3 → 10 changed (single-axis discipline),
+plus the RequestScheduler pool patch.
+
+| Field | Value |
+|---|---|
+| PBS jid | **7197442** (`debug`) |
+| Config | `examples/tictactoe/agentic_val_tictactoe_selfplay_polaris_megatron_20step.yaml` |
+| Steps | **20/20** — `pipeline step 0..19 finished` → `pipeline complete!` |
+| Walltime | **37m37s** (init+first step 7m37s; steady state ~75–80 s/step; predicted ~47 min worst case vs debug's 60 min cap). Exit_status 0; wrap `Training exited with code: 0` |
+| Checkpoints | **Incremental saving proven**: `checkpoint-9` written mid-run (on disk at 08:34, verified while the run continued) and `checkpoint-19` at completion — both megatron-format `actor_train-{0..3}/.../iter_0000001/mp_rank_0{0..3}/model_optim_rng.pt` + `dist_optimizer/` (106 G total) + `pipeline/checkpoint-{9,19}` |
+| Metrics | `system/tps` to 282; non-trivial `actor_train/grad_norm` through step 19; TensorBoard events in `results/.../7197442_20260612-081255/tensorboard/` |
+| **pids census** | peak **2313 of 4096** across the whole run (445 census rows) — the RequestScheduler patch (2048→256) cut the startup peak from the smoke's 4094; `RequestScheduler` owns 328 threads (was 2120) |
+| Memory census | per-GPU maxima 23.6 / 25.3 / 22.3 / 22.0 GB of 40 GB over 20 steps — no growth trend vs the 3-step run |
+| Queue decision | `debug` (1 h) chosen over `preemptable` because the measured per-step time fit with margin; preemptable + `-r y` + low `save_steps` remains the documented path for runs that exceed ~50 min |
+- **2026-06-12 — 20-step proof run GREEN (job 7197442) + checkpoint hygiene.**
+  Phase 2 complete — see the "GREEN — 20-step megatron proof run" section.
+  Queue decision shown by the math: measured init 7m37s + ~78 s/step + ~2 min/
+  save → 20 steps fit `debug` (37m37s actual vs 60 min cap); `preemptable`
+  (≤72 h, `-r y`, low save_steps, resume_from_checkpoint) is the documented
+  path past ~35 steps. After verification, heavy checkpoint blobs were pruned
+  per the established practice: 7197427's `checkpoint-2` (53 G) and 7197442's
+  `checkpoint-9`+`checkpoint-19` (106 G) replaced by
+  `checkpoint_listing_proof.txt` (full `ls -laR` + `du`) in each run dir;
+  TensorBoard, logs, and `pipeline/checkpoint-*` retained. The deepspeed GREEN
+  smoke's 12 G `checkpoint-2` (job 7186746, verified 2026-06-06) was pruned the
+  same way. A 0.5B deepspeed regression from the NEW tarball + the pool patch
+  is running as job 7197445 (the shared env moved; the GREEN baseline must not
+  silently rot) — result recorded in the ledger.

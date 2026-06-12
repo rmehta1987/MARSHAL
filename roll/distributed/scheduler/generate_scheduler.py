@@ -753,7 +753,15 @@ class GlobalCounter:
         return self.value
 
 
-@ray.remote(concurrency_groups={"single_thread": 1, "multi_thread": 2048})
+# Polaris pids fix (measured): Ray eagerly fills a concurrency group's thread
+# pool at actor creation, so the upstream "multi_thread": 2048 made this ONE
+# actor own 2120 of the job cgroup's pids.max=4096 threads (thread census,
+# job 7197427, logs/thread_census_7197427.log) — the dominant cause of the
+# startup EAGAIN race that lost jobs 7197419/7197423 (and the 0.5B smoke's
+# ~50% flakiness). 256 still allows 256 concurrent generate RPCs — far above
+# this pipeline's rollout fan-out (rollout_batch_size 16) — and returns ~1800
+# threads of headroom. Upstream sized 2048 for much larger fleets.
+@ray.remote(concurrency_groups={"single_thread": 1, "multi_thread": 256})
 class RequestScheduler:
     def __init__(self, infer_cluster, pipeline_config):
         self.infer_cluster = infer_cluster

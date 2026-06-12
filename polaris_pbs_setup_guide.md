@@ -363,12 +363,34 @@ the measured-fail pids shape here. The port uses **layout B** in
 
 Six GPU workers total — between the smoke's proven 3 and the failed 9–12; the
 megatron wrap **measures** the actual pids + per-GPU memory every 5 s into
-`logs/pids_census_<jid>.csv`. Weight-sync goes through the NCCL-broadcast bucket
+`logs/pids_census_<jid>.csv` plus a thread-owner sample into
+`logs/thread_census_<jid>.log`. Weight-sync goes through the NCCL-broadcast bucket
 path (with 4 distinct TP src ranks ROLL's comm-planner avoids P2P entirely;
 under vLLM V1 only bucket metadata is msgpack'd) — V1-safe by construction.
 Other essentials carried in the megatron launcher: `CUDA_DEVICE_MAX_CONNECTIONS=1`
 (megatron TP+SP ordering) and `NVTE_FUSED_ATTN=0`/`NVTE_FLASH_ATTN=1` (the Midway
 fix for TE's cuDNN fused-attention having no plan for Qwen3's GQA+SP graph).
+
+Measured outcomes (jobs 7197419/7197421/7197423/7197427/7197442, 2026-06-12):
+
+- **Memory:** per-GPU maxima 23.3/25.2/22.1/22 GB of 40 during the GREEN 3-step
+  run — the 18 GB/rank + colocated-role math holds with >14 GB of margin.
+- **Unsuccessful at first: the startup pids race.** Two of four smoke attempts
+  died at `ActorWorker.initialize()` with EAGAIN; the GREEN run survived at
+  **pids.peak 4094 of 4096**. The thread census attributed **2120 threads to one
+  actor**: ROLL's `RequestScheduler` declares a Ray concurrency group
+  `multi_thread: 2048`, and Ray fills the pool eagerly at actor creation. The
+  in-repo patch (`roll/distributed/scheduler/generate_scheduler.py`, 2048 → 256)
+  dropped the startup peak to a measured **2177** — the race is gone, not
+  re-rolled. (This same pool explains the 0.5B smoke's historical ~50%
+  startup-race flakiness.)
+- **Unsuccessful at first: vLLM refused to start** — `max seq len (40960) needs
+  5.62 GiB KV cache > 2.89 GiB available`. Qwen3-4B ships
+  `max_position_embeddings: 40960` and vLLM defaults `max_model_len` to it. Fix:
+  `max_model_len: 8192` in the strategy_config (this pipeline never exceeds ~5 k
+  tokens), giving 21,008 KV tokens at util 0.35.
+- **HF→mca conversion is cheap:** ~15–17 s/rank per job (it re-runs every job;
+  no on-disk mca cache unless you save one).
 
 ### Step 9 — Run it
 
@@ -385,51 +407,58 @@ checkpoint `checkpoint-2/iter_0000001/mp_rank_{00..03}/model_optim_rng.pt` →
 wrap log `Training exited with code: 0`. (Run outcomes + measured census: see the
 job ledger in `polaris_pbs_notes.md`.)
 
-- **The startup EAGAIN race still applies** (worse: 6 workers vs the smoke's 3).
-  A job hung at `RolloutScheduler.__init__` lost the race — `qdel`, resubmit. The
-  ALCF `pids.max` ticket (drafted in the notes) remains the durable fix.
-- **Two nodes is the fallback, not the plan.** Multi-node Ray + ALCF's
-  AWS-OFI/NCCL fabric is its own bring-up (the docs warn a misconfigured fabric
-  can hang Megatron-DeepSpeed); attempt only after exhausting single-node dials.
+- **The startup EAGAIN race is resolved** by the RequestScheduler pool patch
+  (measured: startup peak 2177–2313 vs the pre-patch 4094 of 4096). If a future,
+  larger layout hangs at `RolloutScheduler.__init__` with EAGAIN anyway: `qdel`,
+  read the thread census to attribute the budget, and trim the named owner. The
+  ALCF `pids.max` ticket (drafted in the notes) remains worth filing as hygiene.
+- **Two nodes is the fallback, not the plan — and was not needed.** Multi-node
+  Ray + ALCF's AWS-OFI/NCCL fabric is its own bring-up (the docs warn a
+  misconfigured fabric can hang Megatron-DeepSpeed); attempt only after
+  exhausting single-node dials.
 
 ---
 
 ## Running it for a longer session
 
-The smoke caps everything tiny (3 steps, `debug` queue, 1 h). A real training session
-needs queue, walltime, checkpoint, and resume changes:
+The 20-step megatron proof run (job 7197442, 2026-06-12) is the realized template
+for anything longer; its measured numbers drive the planning:
 
-- **Move off `debug` to a production queue.** `debug` is 1–2 nodes / ≤1 h. Use:
-  - `debug-scaling` — 1–10 nodes, but **1 job per user** and still short walltime;
-    fine for a medium multi-node test.
-  - `prod` (routing queue) — ≥10 nodes, up to **24 h** walltime, for the real run.
-  - Update the `#PBS -q` and `#PBS -l walltime=` directives in `scripts/train_polaris.pbs`
-    (or override at submit: `qsub -q prod -l walltime=24:00:00 ...`).
-- **Raise the training length in the YAML:** `max_steps` (3 → hundreds/thousands),
-  `save_steps` (checkpoint cadence — don't leave it at 3), `eval_steps`, `logging_steps`.
-  Re-enable validation by setting `eval_steps <= max_steps` (the smoke patch disables
-  the val scheduler when `eval_steps > max_steps`).
-- **Checkpoint sizing & cleanup.** The 0.5B smoke wrote a **12 G** full DeepSpeed
-  checkpoint (weights + ZeRO optimizer state) *per save*. A 4B model and frequent
-  `save_steps` will fill eagle fast — set a sane `save_steps`, prune old checkpoints,
-  and keep `ROLL_OUTPUT_DIR` on eagle (not node-local SSD, which is ephemeral).
-- **Auto-resume across walltime kills.** The inherited Midway/CMU sbatch pattern wires
-  `signal=B:SIGUSR1@90` + a `train_autoresume.sh` so the job checkpoints and requeues
-  near the time limit. **PBS does the equivalent** with `qsub -W depend=afterany:<jid>`
-  chaining or `#PBS -l walltime` + a trap on the PBS signal — port this before a run
-  long enough to be killed. Set `resume_from_checkpoint: true` in the YAML so a requeued
-  job continues instead of restarting.
-- **Tracking.** The smoke uses `track_with: tensorboard` (offline-safe). For a long run
-  you may want `wandb` (`track_with: wandb` + `WANDB_API_KEY`), but note compute nodes
-  are **air-gapped** — wandb would need offline mode (`WANDB_MODE=offline`) + a later
-  `wandb sync`, or stick with tensorboard.
-- **Persisted caches help long/repeated runs.** `TORCH_EXTENSIONS_DIR` (cached
-  `fused_adam.so`), `TRITON_CACHE_DIR`, `TORCHINDUCTOR_CACHE_DIR`, and `HF_HOME` are all
-  on eagle and reused across jobs — keep them; they remove the compile/download bursts.
-- **Unsuccessful approach / watch out:** the startup EAGAIN pids race is *per job submission*,
-  so a long run that gets requeued re-rolls that ~50% dice each time. Getting
-  `pids.max` raised (scale-up section) matters even more for long unattended runs,
-  otherwise a requeue can silently hang. Until then, monitor and resubmit on hang.
+- **Walltime math, measured:** init (staging + probes + Ray + HF→mca conversion +
+  first step) = **7m37s**, then **~75–80 s/step** steady state, plus ~2 min per
+  53 G checkpoint write. 20 steps = 37m37s total. So `debug` (1 h) holds up to
+  roughly **35 steps with one save**; beyond that, plan a different queue.
+- **Queue facts (re-verified 2026-06-12 via `qstat -Qf`):**
+  - `debug` — 1–2 nodes, ≤1 h, 1 running job/user. Hosted every run so far.
+  - `debug-scaling` — 1–10 nodes, **also ≤1 h** (not a longer-walltime option,
+    just wider).
+  - `preemptable` — 1–10 nodes, **≤72 h**, up to 10 jobs/project, preemptible:
+    submit with `-r y`, set `resume_from_checkpoint: true`, and keep `save_steps`
+    low enough that a preemption loses little. This is the queue for real
+    multi-hour training.
+  - `prod` routes to ≥10-node demand — not for single-node runs.
+- **Length dials in the YAML:** `max_steps`, `save_steps` (the 20-step run used
+  10 → checkpoints at steps 9 and 19, both verified on disk; saving costs ~2 min
+  each at 53 G), `eval_steps`/`logging_steps`. Re-enable validation by setting
+  `eval_steps <= max_steps` (the in-repo patch skips the val scheduler when
+  `eval_steps > max_steps`).
+- **Checkpoint sizing & cleanup, measured:** a megatron save is **53 G**
+  (14 G/rank × 4 TP ranks — slightly more than the 0.5B smoke's 12 G ZeRO
+  checkpoint, but per-save); the 2-save 20-step run dir is 106 G. Prune heavy
+  blobs after verification, keep TensorBoard + logs + the checkpoint directory
+  listing as proof (the established practice), and keep `ROLL_OUTPUT_DIR` on
+  eagle (node-local SSD is ephemeral).
+- **Auto-resume across preemption/walltime.** Set `resume_from_checkpoint: true`
+  and requeue via `qsub -W depend=afterany:<jid>` chaining (or `-r y` on
+  preemptable, which requeues automatically on preemption). The startup-race
+  re-roll concern that made unattended requeues risky is gone with the
+  RequestScheduler patch (peak 2313 of 4096) — a requeued job no longer gambles
+  at construction.
+- **Tracking.** `track_with: tensorboard` (offline-safe; proven). wandb would
+  need offline mode + later sync — compute nodes are air-gapped.
+- **Persisted caches help long/repeated runs.** `TORCH_EXTENSIONS_DIR`,
+  `TRITON_CACHE_DIR`, `TORCHINDUCTOR_CACHE_DIR`, `HF_HOME` are on eagle and
+  reused across jobs; the venv tarball staging cost is a flat ~15 s/job.
 
 ---
 

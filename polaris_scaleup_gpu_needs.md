@@ -1,106 +1,90 @@
-# Scaling up to the Megatron training run on Polaris — what it will take (plain-language note)
+# The Megatron training run on Polaris — what it actually took (plain-language note)
 
-This note explains, in everyday terms, how much GPU horsepower we'll need to go from the
-small test we just got working to the real "Megatron" training run, and where the real
-difficulty is. Companion to `polaris_pbs_notes.md` (which has the technical detail).
+This note explains, in everyday terms, how much GPU horsepower the real "Megatron"
+training run needed on Polaris, and where the real difficulty turned out to be. It was
+originally written as a forecast before the work; this version records what actually
+happened (2026-06-12). Companion to `polaris_pbs_notes.md` (which has the technical
+detail, job ids, and measurements).
 
 ---
 
 ## The one-paragraph answer
 
-The test we just passed used a **small** model and gave each job-role its own GPU. The
-scale-up uses a model that is **about eight times bigger**, and that bigger model does not
-fit on a single GPU. So instead of one GPU per role, **all four GPUs on a Polaris node have
-to gang together and act as one big GPU** to hold and train the bigger model. In short:
-the scale-up needs **a whole Polaris node (its 4 GPUs), all working together**, rather than
-the 3-separate-GPUs arrangement the test used. The harder problem is **not** raw GPU power —
-it's a per-job "how many things can run at once" limit on Polaris that the bigger setup
-bumps into. That limit, not the GPUs, is what we'll have to get raised.
+The small test used a **small** model (half a billion adjustable values) and gave each
+job-role its own GPU. The real run uses a model **about eight times bigger** (Qwen3-4B)
+that cannot be trained on a single GPU. It ran successfully on **one Polaris node**: the
+four GPUs gang together to hold and train the big model (each GPU holds a quarter of
+it), while the two helper roles — the copy that generates game moves and the frozen
+comparison copy — each tuck into a corner of one of those same GPUs. As predicted, the
+harder problem was **not** raw GPU power: it was Polaris's per-job cap on "how many
+things can run at once" (4,096). The first green run scraped under that cap by literally
+**two slots**. We then found that a single helper program had been hogging more than
+half the budget (2,120 slots) for no good reason, trimmed it, and the cap stopped being
+a coin flip. A request to raise the cap is still worth filing — the draft is in the
+notes — but it was not needed to get the run green.
 
 ---
 
-## What's actually changing
+## What actually changed from the small test
 
-| | The test run (already GREEN) | The Megatron scale-up |
+| | The small test (GREEN 2026-06-06) | The Megatron run (GREEN 2026-06-12) |
 |---|---|---|
-| Model size | ~half a billion adjustable values (Qwen2.5-0.5B) | ~four billion (Qwen3-4B) — roughly **8× bigger** |
-| How the model sits on GPUs | small enough to put a full copy on one GPU | too big for one GPU — must be **split across all 4 GPUs that work as a team** |
-| GPUs used | 3 of the 4 (one per role, kept separate) | **all 4 of a node, ganged together** |
-| Training engine | the lighter "DeepSpeed" engine | the heavier-duty **Megatron** engine, built for big models |
-| Training length | 3 steps (just to prove it runs) | longer real runs |
+| Model size | ~half a billion values (Qwen2.5-0.5B) | ~four billion (Qwen3-4B) — roughly **8× bigger** |
+| How the model sits on GPUs | a full copy fits on one GPU | **split four ways** across the node's 4 GPUs, which act as one (tensor parallelism) |
+| GPUs used | 3 of the 4 (one per role, kept separate) | **all 4 for training**, with the move-generator in GPU 0's spare room and the comparison copy in GPU 1's |
+| Training engine | the lighter "DeepSpeed" engine | the heavier-duty **Megatron** engine, the one MARSHAL's real experiments use |
+| Proof | 3 steps (job 7186746) | 3 steps (job 7197427), then a 20-step run |
 
-The "split the model across 4 GPUs that work as a team" idea is the heart of it. When a model
-is too big to fit on one card, you cut it into four pieces, put one piece on each GPU, and the
-four GPUs constantly talk to each other to do one model's worth of work. Megatron is the tool
-that does this cutting-and-coordinating.
+One forecast in the earlier version of this note did **not** survive contact with
+reality, in a good way: we expected every role to need all four GPUs ganged together
+(twelve workers), which would have sailed far past the per-job cap and required ALCF to
+raise it first. Instead, a layout with **six** workers — four for training, one each
+for the two helper roles — fit both the memory and the cap, so the run went green
+without waiting on ALCF.
 
 ---
 
 ## How many GPUs, concretely
 
-- **Minimum target: one full Polaris node = 4 A100 GPUs.** Each Polaris GPU has 40 GB of
-  memory; a node's four add up to 160 GB. The 4-billion model plus everything training needs
-  (a working copy of the model, the "how to adjust it" bookkeeping, and a separate copy used
-  for generating game moves and another for comparison) is meant to be spread across those
-  four GPUs.
-
-- **One node is the plan, but memory will be tight.** Here's the catch: the existing scale-up
-  recipe was written for Midway's GPUs, which have **about 3.5× more memory each** (140 GB vs
-  Polaris's 40 GB). On Polaris's smaller GPUs we are packing the same big model into much less
-  room. The setup avoids running out of memory by having the roles **take turns** on the GPUs
-  (one role's data is temporarily parked aside while another runs), so they don't all need
-  room at the same instant. That trick should make 4 billion fit on one node — but it is close
-  to the edge, so the first scale-up attempts will likely need small dials turned down
-  (smaller batches of work at a time, or parking more data in regular computer memory).
-
-- **If one node turns out to be too tight: two nodes (8 GPUs).** That doubles the memory to
-  work with and removes the squeeze, at the cost of asking the scheduler for two machines and
-  the extra coordination of GPUs talking across machines. This is the fallback, not the
-  starting point.
-
-**Bottom line on hardware:** plan for **one Polaris node (4 GPUs) to start**, and be ready to
-ask for **two nodes (8 GPUs)** if memory proves too tight. We have plenty of allocation for
-this (the account has thousands of node-hours available).
+- **One Polaris node = 4 A100 GPUs (40 GB each) was enough.** Measured peak memory per
+  GPU during the run: 23–25 GB of 40 — comfortable, not squeezed. The bookkeeping
+  needed to train the 4-billion model is about 72 GB in total, split four ways
+  (~18 GB per GPU), plus the 8 GB move-generator copy on GPU 0 and the 8 GB comparison
+  copy on GPU 1. The roles also take turns (parking their data when idle), which the
+  run confirmed works.
+- **The two-node fallback was never needed.** It remains the escape hatch if a bigger
+  model ever outgrows one node, but it brings real extra complexity (GPUs talking
+  across machines), so it stays a fallback.
+- **Allocation cost is trivial:** the proof runs used well under one node-hour each;
+  the account has ~17,000 node-hours.
 
 ---
 
-## The real bottleneck is NOT the GPUs
+## The real bottleneck was exactly where we predicted — with a twist
 
-This is the important part. Getting the small test to run was hard not because we ran out of
-GPU power, but because **Polaris caps how many separate programs and helper threads a single
-job is allowed to run at once** (the cap is 4,096). Our training setup launches a lot of small
-helper programs, and the small test only fit under that cap once we trimmed it down to three
-GPUs with one program each.
+The per-job "how many programs and threads at once" cap (4,096) was indeed the hard
+constraint — two of the four attempts died on it during startup, and the green run
+survived it by a margin of **two**. The twist: measurement (a thread census added to
+the job) showed **one single helper program was occupying 2,120 of the 4,096 slots** —
+a request-dispatcher that pre-reserves room for 2,048 simultaneous conversations,
+sized by its authors for fleets hundreds of times larger than ours. Telling it to
+reserve 256 instead returned ~1,800 slots of breathing room and turned "scraped by
+with two to spare" into a comfortable fit.
 
-The Megatron scale-up makes this **worse**, because ganging 4 GPUs together for each of the
-three roles means roughly **four times as many helper programs** as the test used. That will
-sail past the 4,096 cap. So before the scale-up can run reliably, **one of these has to
-happen:**
+So the order of remedies ended up being:
 
-1. **Ask ALCF to raise that per-job limit** on the GPU nodes (the clean fix — it's their
-   setting, not something we can change ourselves). This is the recommended path and the
-   single thing most likely to unblock the scale-up.
-2. **Or trim the helper-program count further** (fewer parallel game environments, leaner
-   settings) so the bigger run still squeezes under 4,096 — possible, but fiddly and limiting.
-
-In other words: **the GPUs are not the constraint — the job's "number of running pieces" limit
-is.** Money/allocation is fine; raw compute is fine; we mainly need ALCF to lift that ceiling
-(or we keep the run deliberately small).
+1. **Trim what we control** (the dispatcher's reservation, idle worker pools,
+   per-process thread pools) — this is what actually got the run green, and it is all
+   recorded in the repo so it stays fixed.
+2. **Still ask ALCF to raise the cap** — the request text is drafted in
+   `polaris_pbs_notes.md`; a higher cap would remove the class of problem entirely,
+   especially for bigger future configurations. It is no longer a blocker, just good
+   hygiene.
 
 ---
 
-## Suggested order of operations for the scale-up
-
-1. **File the ALCF request to raise the per-job program/thread limit** (4,096 → higher) on the
-   GPU/debug nodes. Everything else waits on this.
-2. Once raised, run the 4-billion model on **one node (4 GPUs)** with the Megatron engine;
-   expect to lower memory-related dials on the first one or two tries.
-3. If memory still won't fit on one node, move to **two nodes (8 GPUs)**.
-4. Only then worry about longer training runs and any performance tuning.
-
----
-
-*Numbers used: Qwen3-4B ≈ 4 billion parameters; Polaris A100 = 40 GB/GPU, 4 GPUs/node; the
-existing Megatron recipe (`agentic_val_tictactoe_selfplay_midway_megatron.yaml`) splits the
-model across all 4 GPUs and was sized for Midway's 140 GB H200s. The per-job limit of 4,096 was
-measured on a Polaris debug node — see `polaris_pbs_notes.md`.*
+*Numbers used: Qwen3-4B ≈ 4.0 billion parameters; Polaris A100 = 40 GB/GPU, 4
+GPUs/node; training state ≈ 18 bytes/parameter ≈ 72 GB split across 4 GPUs; measured
+per-GPU peaks 23.3/25.2/22.1/21.8 GB (job 7197427); per-job cap pids.max = 4,096
+(measured, job 7186710); dispatcher thread count 2,120 (measured, job 7197427's thread
+census). Details and the job ledger: `polaris_pbs_notes.md`.*
