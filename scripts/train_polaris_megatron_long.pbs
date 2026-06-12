@@ -1,0 +1,280 @@
+#!/bin/bash
+# Polaris (PBS Pro) MARSHAL MEGATRON LONG-RUN wrap — preemptable queue, 12 h.
+# Long-run variant of scripts/train_polaris_megatron.pbs (the GREEN megatron
+# wrap, jobs 7197427/7197442); config agentic_val_tictactoe_selfplay_polaris_
+# megatron_long.yaml (max_steps 400, save_steps 50 — walltime math in its
+# header). Submit from the repo root:
+#     qsub scripts/train_polaris_megatron_long.pbs
+#
+# Differences from the proven debug wrap, and nothing else:
+#   - queue preemptable (re-confirmed 2026-06-12: 1-10 nodes, walltime <= 72 h,
+#     max_run=[p:10]), walltime 12:00:00, #PBS -r y (requeue on preemption)
+#   - MARSHAL_CONFIG_NAME selects the _long YAML through the proven launcher
+#   - ROLL_OUTPUT_DIR under results/tictactoe_selfplay_polaris_megatron_long/
+#   - AUTO-RESUME block: on (re)start, find the latest COMPLETE checkpoint of
+#     this exp, assemble the merged resume dir (the scripts/simlink_resume_dir.sh
+#     layout: actor_train-0 contents + all ranks' rng_state + merged
+#     dist_optimizer shards + all mp_rank_* + pipeline worker state) and export
+#     MARSHAL_RESUME_DIR, which the YAML reads via ${oc.env:MARSHAL_RESUME_DIR,false}.
+#     No checkpoint found => fresh start.
+#   - census files append on requeue instead of truncating (same jid re-runs
+#     the same script under -r y)
+#
+# (PBS reads only lines that start with "#PBS"; keep annotations on the line ABOVE.)
+# Job name (shown by qstat); also the default -o/-e file prefix
+#PBS -N marshal-megatron-long
+# Allocation to charge (per `sbank-list-allocations`; note: NOT "Uchicago-lighthouse")
+#PBS -A lighthouse-uchicago
+# preemptable: the only queue fitting a 12 h single-node job (debug/debug-scaling
+# cap at 1 h; prod routes to >=10 nodes) — re-confirmed via qstat -Qf 2026-06-12
+#PBS -q preemptable
+# Rerunnable: REQUIRED semantics on preemptable — a preempted job is requeued
+# and re-runs this script; the auto-resume block below picks up the last save
+#PBS -r y
+# One full node: 64 cpus (Milan 32c/64t), all 4 A100 GPUs
+#PBS -l select=1:ncpus=64:ngpus=4
+# Polaris REJECTS jobs that don't declare the filesystems they touch
+#PBS -l filesystems=home:eagle
+# 12 h: expected 10.4 h (400 steps x 92.2 s + 7m37s init, measured on 7197442),
+# pessimistic 11.3 h at 100 s/step
+#PBS -l walltime=12:00:00
+# stdout/stderr -> repo logs/ dir (trailing slash = directory; must exist at submit)
+#PBS -o /lus/eagle/projects/lighthouse-uchicago/members/mehta5/MARSHAL/logs/
+#PBS -e /lus/eagle/projects/lighthouse-uchicago/members/mehta5/MARSHAL/logs/
+
+PROJECT_ROOT=/lus/eagle/projects/lighthouse-uchicago/members/mehta5/MARSHAL
+BASE=/lus/eagle/projects/lighthouse-uchicago/members/mehta5
+# Venv location is overridable (qsub -v MARSHAL_VENV=...). Default = canonical eagle venv.
+VENV="${MARSHAL_VENV:-$BASE/conda-envs/marshal-train}"
+# Default tarball = the MEGATRON-extended venv (override with qsub -v MARSHAL_VENV_TARBALL=...).
+MARSHAL_VENV_TARBALL="${MARSHAL_VENV_TARBALL:-$BASE/marshal-train-megatron-venv.tar}"
+# The proven launcher reads this to pick the hydra config (no launcher copy needed).
+export MARSHAL_CONFIG_NAME=agentic_val_tictactoe_selfplay_polaris_megatron_long
+cd "$PROJECT_ROOT"   # PBS starts the job in $HOME; the launcher prepends $PWD to PYTHONPATH
+mkdir -p "$PROJECT_ROOT/logs"
+
+# ── Live wrap log (observability) ──
+# PBS only copies its .OU/.ER to logs/ at job END. Mirror everything to an
+# eagle file we can `tail -f` live. -a: a requeued run APPENDS (same jid).
+WRAP_LOG="$PROJECT_ROOT/logs/wrap_${PBS_JOBID%%.*}.log"
+exec > >(stdbuf -oL -eL tee -a "$WRAP_LOG") 2>&1   # line-buffered so the live log is real-time-accurate
+
+echo "=== Job $PBS_JOBID on $(hostname) at $(date) (run_count not visible in-job; appended runs are delimited by this banner) ==="
+
+# ── pids + GPU-memory census (the proven measurement loop, requeue-safe) ──
+# Derive the cgroup from /proc/self/cgroup (authoritative — see job 7197421).
+CG_SELF=$(awk -F: 'END{print $3}' /proc/self/cgroup)
+CGROUP_DIR="/sys/fs/cgroup${CG_SELF}"
+[ -r "$CGROUP_DIR/pids.max" ] || CGROUP_DIR="/sys/fs/cgroup/jobs/${PBS_JOBID%%.*}"
+echo "census cgroup dir: $CGROUP_DIR (from /proc/self/cgroup: ${CG_SELF})"
+CENSUS_CSV="$PROJECT_ROOT/logs/pids_census_${PBS_JOBID%%.*}.csv"
+[ -f "$CENSUS_CSV" ] || echo "epoch_s,pids_current,pids_peak,gpu_mem_used_mib_0_1_2_3" > "$CENSUS_CSV"
+echo "pids.max for this job: $(cat $CGROUP_DIR/pids.max 2>/dev/null || echo unknown)"
+(
+  while sleep 5; do
+    cur=$(cat "$CGROUP_DIR/pids.current" 2>/dev/null || echo NA)
+    peak=$(cat "$CGROUP_DIR/pids.peak" 2>/dev/null || echo NA)
+    gpu=$(timeout 10 nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits 2>/dev/null | paste -sd_ - || echo NA)
+    echo "$(date +%s),$cur,$peak,$gpu"
+  done >> "$CENSUS_CSV"
+) &
+CENSUS_PID=$!
+# Thread-owner sampler (attribution if a pids race ever reappears).
+THREAD_LOG="$PROJECT_ROOT/logs/thread_census_${PBS_JOBID%%.*}.log"
+(
+  while sleep 30; do
+    echo "=== $(date +%s) total_threads=$(cat "$CGROUP_DIR/pids.current" 2>/dev/null || echo NA)"
+    ps -e -o nlwp=,pid=,comm= --sort=-nlwp | head -12
+  done >> "$THREAD_LOG"
+) &
+THREAD_CENSUS_PID=$!
+
+echo ">>> phase: modules"
+
+# ── Modules + venv (identical to the proven megatron wrap) ──
+module use /soft/modulefiles
+module load conda/2025-09-25
+conda activate base
+export CUDA_HOME=/soft/compilers/cudatoolkit/cuda-12.4.1
+export PATH="$CUDA_HOME/bin:$PATH"
+export CC=/usr/bin/gcc-12
+export CXX=/usr/bin/g++-12
+
+# ── Node-local scratch (RAID0 SSD); per-job TMPDIR ──
+unset TMPDIR
+NODE_SCRATCH=/local/scratch
+[ -d "$NODE_SCRATCH" ] || NODE_SCRATCH=/tmp
+export TMPDIR="$NODE_SCRATCH/${USER}_${PBS_JOBID%%.*}"
+mkdir -p "$TMPDIR"
+echo "TMPDIR=$TMPDIR"
+
+# ── Stage the venv to node-local SSD from a SINGLE tarball (the Lustre fix) ──
+if [ -n "${MARSHAL_VENV_TARBALL:-}" ]; then
+    echo ">>> phase: staging venv tarball -> node-local SSD"
+    echo "    tarball: $MARSHAL_VENV_TARBALL"
+    LOCAL_VENV="$TMPDIR/marshal-train"
+    mkdir -p "$LOCAL_VENV"
+    _t0=$SECONDS
+    tar xf "$MARSHAL_VENV_TARBALL" -C "$LOCAL_VENV"
+    echo "    extracted $(du -sh "$LOCAL_VENV" 2>/dev/null | cut -f1) in $((SECONDS-_t0))s from $MARSHAL_VENV_TARBALL"
+    VENV="$LOCAL_VENV"
+fi
+
+# Activate the venv MANUALLY (a relocated venv's activate hardcodes the original path).
+export VIRTUAL_ENV="$VENV"
+export PATH="$VENV/bin:$PATH"
+hash -r
+echo "    venv: $VENV"
+# ── TE shared-library resolution (venv's own nvidia wheel libs; /soft lib64 stays OFF) ──
+NVLIB="$VENV/lib/python3.12/site-packages/nvidia"
+export LD_LIBRARY_PATH="$NVLIB/cudnn/lib:$NVLIB/cublas/lib:$NVLIB/cuda_nvrtc/lib:$NVLIB/cuda_runtime/lib:$NVLIB/nccl/lib:${LD_LIBRARY_PATH:-}"
+echo ">>> phase: venv activated"
+
+echo "python: $(command -v python) ($(python --version 2>&1))"
+echo "nvcc:   $(command -v nvcc) ($(nvcc --version 2>/dev/null | awk '/release/{print $5,$6}'))"
+echo "CC=$CC  CXX=$CXX"
+# nvidia-smi fully detached (has hung in D-state on bad nodes; purely diagnostic).
+echo ">>> phase: nvidia-smi (backgrounded, non-blocking)"
+( timeout 30 nvidia-smi > "$PROJECT_ROOT/logs/nvidia-smi_${PBS_JOBID%%.*}.txt" 2>&1 & ) || true
+
+# Fail-FAST GPU probe via torch, bounded by `timeout`.
+echo ">>> phase: torch CUDA probe"
+echo "    env: CUDA_VISIBLE_DEVICES=[${CUDA_VISIBLE_DEVICES-<unset>}]  CUDA_HOME=$CUDA_HOME"
+timeout 300 python -u "$PROJECT_ROOT/scripts/polaris_gpu_probe.py"
+rc=$?
+echo ">>> torch probe exit rc=$rc"
+if [ $rc -ne 0 ]; then
+    echo "FATAL: torch CUDA probe failed/timed out (rc=$rc) on $(hostname). Aborting (not burning walltime)."
+    exit 42
+fi
+
+# ── Megatron-stack on-node verification (cheap, fail-fast) ──
+echo ">>> phase: megatron-stack import probe"
+timeout 300 python -u -c "
+import time; t0=time.time()
+import megatron.core; print(f'  megatron.core {megatron.core.__version__} (+{time.time()-t0:.1f}s)', flush=True)
+import transformer_engine; print(f'  transformer_engine {transformer_engine.__version__} (+{time.time()-t0:.1f}s)', flush=True)
+import transformer_engine.pytorch; print(f'  transformer_engine.pytorch (+{time.time()-t0:.1f}s)', flush=True)
+import flash_attn; print(f'  flash_attn {flash_attn.__version__} (+{time.time()-t0:.1f}s)', flush=True)
+import apex; print(f'  apex imported (+{time.time()-t0:.1f}s)', flush=True)
+import mcore_adapter; print(f'  mcore_adapter {mcore_adapter.__version__} (+{time.time()-t0:.1f}s)', flush=True)
+from mcore_adapter.models.converter.convert_utils import RecvBucketManager
+print(f'  RecvBucketManager (real, not stub) OK (+{time.time()-t0:.1f}s)', flush=True)
+"
+rc=$?
+echo ">>> megatron-stack probe exit rc=$rc"
+if [ $rc -ne 0 ]; then
+    echo "FATAL: megatron-stack import failed on $(hostname). Aborting."
+    exit 43
+fi
+echo ">>> phase: setup (caches/output)"
+
+# ── Caches on eagle; offline mode (compute nodes are air-gapped) ──
+export HF_HOME=$BASE/hf_cache
+export HUGGINGFACE_HUB_CACHE=$HF_HOME
+export HF_HUB_OFFLINE=1
+export TRANSFORMERS_OFFLINE=1
+export TRITON_CACHE_DIR=$BASE/triton_cache
+export TORCHINDUCTOR_CACHE_DIR=$BASE/torchinductor_cache
+export TORCH_EXTENSIONS_DIR=$BASE/torch_extensions
+export TORCH_CUDA_ARCH_LIST=8.0
+mkdir -p "$HF_HOME" "$TRITON_CACHE_DIR" "$TORCHINDUCTOR_CACHE_DIR" "$TORCH_EXTENSIONS_DIR"
+
+# ── Ray scratch under the node-local TMPDIR ──
+export RAY_TMPDIR="$TMPDIR/ray"
+mkdir -p "$RAY_TMPDIR"
+
+# ── AUTO-RESUME: find the latest COMPLETE checkpoint of this experiment ──
+# A save is COMPLETE iff the pipeline worker state exists (it is written only
+# AFTER base_pipeline.do_checkpoint has blocked on all cluster saves) AND all
+# 4 TP ranks' model_optim_rng.pt are on disk (belt-and-braces vs pruning or a
+# preemption mid-write). Globs are scoped to this experiment's results tree.
+EXP_RESULTS_ROOT="$PROJECT_ROOT/results/tictactoe_selfplay_polaris_megatron_long"
+BEST_STEP=-1
+BEST_RUN=""
+for ws in "$EXP_RESULTS_ROOT"/*/pipeline/checkpoint-*/pipeline/worker_state_pipeline.json; do
+    [ -e "$ws" ] || continue
+    ckpt_name=$(basename "$(dirname "$(dirname "$ws")")")    # checkpoint-N
+    step=${ckpt_name#checkpoint-}
+    case "$step" in (*[!0-9]*) continue;; esac
+    run_dir=$(dirname "$(dirname "$(dirname "$(dirname "$ws")")")")
+    complete=1
+    for r in 0 1 2 3; do
+        [ -f "$run_dir/actor_train-$r/checkpoint-$step/iter_0000001/mp_rank_0$r/model_optim_rng.pt" ] || complete=0
+    done
+    if [ "$complete" -eq 1 ] && [ "$step" -gt "$BEST_STEP" ]; then
+        BEST_STEP=$step
+        BEST_RUN=$run_dir
+    fi
+done
+if [ "$BEST_STEP" -ge 0 ]; then
+    echo ">>> phase: assembling resume dir (latest complete save: step $BEST_STEP in $BEST_RUN)"
+    RESUME_DIR="$BEST_RUN/resume-checkpoint-$BEST_STEP"
+    # Rebuild from scratch every run (cheap symlink farm; avoids ln -sf dereference traps).
+    rm -rf "$RESUME_DIR"
+    mkdir -p "$RESUME_DIR"
+    # 1) actor_train-0's checkpoint contents (model config, tokenizer, scheduler.pt, ...)
+    for f in "$BEST_RUN/actor_train-0/checkpoint-$BEST_STEP"/*; do
+        ln -sfn "$f" "$RESUME_DIR/$(basename "$f")"
+    done
+    # 2) merge RNG states from all ranks
+    rm -rf "$RESUME_DIR/rng_state"
+    mkdir -p "$RESUME_DIR/rng_state"
+    for rank_dir in "$BEST_RUN"/actor_train-*/checkpoint-$BEST_STEP/rng_state; do
+        for rng_file in "$rank_dir"/*; do
+            ln -sfn "$rng_file" "$RESUME_DIR/rng_state/$(basename "$rng_file")"
+        done
+    done
+    # 3) merge distributed-optimizer shards + mp_rank_* dirs from all ranks
+    rm -rf "$RESUME_DIR/iter_0000001"
+    mkdir -p "$RESUME_DIR/iter_0000001/dist_optimizer"
+    for rank_dir in "$BEST_RUN"/actor_train-*/checkpoint-$BEST_STEP/iter_0000001/dist_optimizer; do
+        for shard in "$rank_dir"/*; do
+            ln -sfn "$shard" "$RESUME_DIR/iter_0000001/dist_optimizer/$(basename "$shard")"
+        done
+    done
+    for rank_dir in "$BEST_RUN"/actor_train-*/checkpoint-$BEST_STEP/iter_0000001/mp_rank_*; do
+        ln -sfn "$rank_dir" "$RESUME_DIR/iter_0000001/$(basename "$rank_dir")"
+    done
+    # 4) pipeline state (step counter + metric history) — copied, not linked
+    mkdir -p "$RESUME_DIR/pipeline"
+    cp "$BEST_RUN/pipeline/checkpoint-$BEST_STEP/pipeline/worker_state_pipeline.json" "$RESUME_DIR/pipeline/"
+    cp "$BEST_RUN/pipeline/checkpoint-$BEST_STEP/pipeline/rng_state_pipeline.pth" "$RESUME_DIR/pipeline/" 2>/dev/null || true
+    export MARSHAL_RESUME_DIR="$RESUME_DIR"
+    echo "    MARSHAL_RESUME_DIR=$MARSHAL_RESUME_DIR (training resumes at step $((BEST_STEP+1)))"
+else
+    echo ">>> phase: no prior complete checkpoint found — fresh start (MARSHAL_RESUME_DIR unset)"
+fi
+
+# ── Output dir (per-run; a requeued run gets a fresh timestamped dir) ──
+export ROLL_OUTPUT_DIR="$PROJECT_ROOT/results/tictactoe_selfplay_polaris_megatron_long/${PBS_JOBID%%.*}_$(date +%Y%m%d-%H%M%S)"
+export ROLL_LOG_DIR="$ROLL_OUTPUT_DIR/logs"
+export ROLL_RENDER_DIR="$ROLL_OUTPUT_DIR/render"
+mkdir -p "$ROLL_LOG_DIR" "$ROLL_RENDER_DIR"
+
+# ── PYTHONPATH: repo only (mcore_adapter resolves from the venv) ──
+export PYTHONPATH="$PROJECT_ROOT:${PYTHONPATH:-}"
+
+# ── Cleanup on exit ──
+cleanup() {
+    echo "$(date): Cleanup triggered (exit)"
+    kill "$CENSUS_PID" "$THREAD_CENSUS_PID" 2>/dev/null || true
+    ray stop --force 2>/dev/null || true
+    sleep 2
+    pkill -u "$USER" -f "ray::"      2>/dev/null || true
+    pkill -u "$USER" -f "raylet"     2>/dev/null || true
+    pkill -u "$USER" -f "gcs_server" 2>/dev/null || true
+    rm -rf /tmp/ray/session_latest   2>/dev/null || true
+    if [ -f "$CENSUS_CSV" ]; then
+        echo "pids census: $(awk -F, 'NR>1 && $2!="NA" {if($2>m)m=$2} END{print "peak pids.current="m}' "$CENSUS_CSV") (cap 4096); rows=$(($(wc -l < "$CENSUS_CSV")-1))"
+    fi
+    echo "$(date): Cleanup complete"
+}
+trap cleanup EXIT
+
+# ── Run training via the PROVEN megatron launcher (it reads MARSHAL_CONFIG_NAME) ──
+echo ">>> phase: launching training ($(date))"
+bash examples/tictactoe/run_agentic_pipeline_tictactoe_selfplay_polaris_megatron.sh
+TRAIN_EXIT=$?
+echo "Training exited with code: $TRAIN_EXIT"
+exit $TRAIN_EXIT
