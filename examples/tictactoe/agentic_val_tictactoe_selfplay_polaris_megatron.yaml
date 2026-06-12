@@ -42,9 +42,17 @@ hydra:
 #
 #  MEMORY DIALS:
 #  - gpu_memory_utilization 0.6 -> 0.35: 0.6 of 40 GB = 24 GB is sized for
-#    H200s. 0.35 -> 14 GB = 8 GB weights + ~5.7 GB KV cache. Qwen3-4B KV is
-#    ~144 KB/token (36 layers x 2 x 8 kv-heads x 128 dim x 2 B) -> ~40k
-#    cached tokens, ample for tictactoe rollouts (16 trajs, <=1024 new toks).
+#    H200s. 0.35 -> 14 GB = 8 GB weights + KV cache. Qwen3-4B KV is
+#    ~144 KB/token (36 layers x 2 x 8 kv-heads x 128 dim x 2 B).
+#  - max_model_len: 8192 (REQUIRED, measured on job 7197421): Qwen3-4B's
+#    max_position_embeddings is 40960 and vLLM defaults max_model_len to it,
+#    then refuses to start unless the KV cache holds one full-length request
+#    (40960 x 144 KB = 5.62 GiB > the 2.89 GiB the 0.35 budget leaves after
+#    weights). Our pipeline never exceeds ~5k tokens (sequence_length 4096,
+#    max_new_tokens 1024), so 8192 is generous and turns the 2.89 GiB into
+#    ~21k cached tokens. Capping max_model_len beats raising
+#    gpu_memory_utilization, which would eat GPU0 headroom shared with the
+#    TP rank-0 training shard.
 #
 #  PIDS DIALS (inherited from the GREEN Polaris smoke, jid 7186746):
 #  - env_groups 16 -> 2 (n_groups [2]) for both env managers: each env
@@ -139,6 +147,7 @@ actor_infer:
     strategy_config:
       gpu_memory_utilization: 0.35
       block_size: 16
+      max_model_len: 8192   # cap vs the 40960 default; see header (job 7197421)
       load_format: auto
       enforce_eager: true
   device_mapping: "[0]"   # 1 vLLM worker (pids); NCCL-broadcast weight-sync (see header)

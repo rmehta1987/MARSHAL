@@ -833,7 +833,9 @@ engineering proceeds in parallel per the plan above.
    stub-dormancy asserted on-node; probe-job pids.peak 83. Bonus finding:
    `pids.peak` exists in the job cgroup on these nodes, so the census records
    true peaks. Log: `logs/wrap_7197416.log`).
-3. **[debug] Megatron 3-step smoke** at layout B. Status: not started.
+3. **[debug] Megatron 3-step smoke** at layout B. Status: **Successful**
+   (job 7197427, 2026-06-12, after 3 prior attempts: two startup-race losses
+   and one vLLM `max_model_len` fix — see the decisions log and ledger).
 4. **[debug or preemptable] 20-step proof run.** Status: not started.
 
 ## Job ledger — every Polaris log file, its job, and its outcome
@@ -871,6 +873,10 @@ reached the wrap's probe phase.
 | `logs/wrap_7186742.log`, `logs/nvidia-smi_7186742.txt`, `logs/7186742.*.OU/.ER` | 7186742 | debug | distinct GPUs, strings fixed | Unsuccessful overall, but the BREAKTHROUGH run | `weight update progress: 100%` over NCCL broadcast (V1 serialization problem gone). Died in the step-0 *validation* cascade: the val RequestScheduler had been killed by the startup EAGAIN race; hung 45 min until qdel. Fix: skip val scheduler when `eval_steps > max_steps` |
 | `logs/wrap_7186746.log`, `logs/nvidia-smi_7186746.txt`, `logs/7186746.*.OU/.ER`, `results/tictactoe_selfplay_polaris_smoke/7186746_*/logs/custom_logs.log` | 7186746 | debug | 0.5B deepspeed smoke, roles on GPUs 0/1/2, val disabled | **Successful — the GREEN bring-up** | 3 steps, `pipeline complete!`, 12 G `checkpoint-2`, TensorBoard events, `Training exited with code: 0` |
 | `logs/wrap_7197416.log`, `logs/nvidia-smi_7197416.txt`, `logs/7197416.*.OU/.ER` | 7197416 | debug | Megatron-toolchain on-GPU probe (`scripts/polaris_megatron_probe.pbs`), new 10.25 G tarball | Successful | Rung 2: stack staged+imported on-node in 14.5 s, `flash_attn_func` bf16 forward + TE LayerNorm ran on the A100, stub dormant, pids.peak 83, Exit_status 0 |
+| `logs/wrap_7197419.log`, `logs/pids_census_7197419.csv`, `logs/nvidia-smi_7197419.txt`, `logs/7197419.*.OU/.ER`, `results/tictactoe_selfplay_polaris_megatron/7197419_*/logs/custom_logs.log` | 7197419 | debug | Megatron 3-step smoke, layout B, attempt 1 | Unsuccessful | Lost the startup pids race: census `pids.peak` hit the 4096 ceiling during GPU-worker init; `actor_train-2` died at `ActorWorker.initialize()` with `RuntimeError: Resource temporarily unavailable` (NCCL watchdog EAGAIN cascade). Exited cleanly, code 1, ~4 min — no hang. First measured layout-B data point |
+| `logs/wrap_7197421.log`, `logs/pids_census_7197421.csv`, `logs/nvidia-smi_7197421.txt`, `logs/7197421.*.OU/.ER`, `results/tictactoe_selfplay_polaris_megatron/7197421_*/logs/custom_logs.log` | 7197421 | debug | Megatron 3-step smoke, layout B, attempt 2 (unchanged resubmit) | Unsuccessful, but won the race and isolated the next blocker | Startup race won; HF→mca conversion measured FAST (~17 s/rank); vLLM EngineCore then refused to start: `max seq len (40960)` needs 5.62 GiB KV > 2.89 GiB available at util 0.35 — vLLM defaults `max_model_len` to Qwen3-4B's 40960 max_position_embeddings. Fix: `max_model_len: 8192` in the vLLM strategy_config. (Census pids columns read 0 on this node — wrap now derives the cgroup from `/proc/self/cgroup`) |
+| `logs/wrap_7197423.log`, `logs/pids_census_7197423.csv`, `logs/nvidia-smi_7197423.txt`, `logs/7197423.*.OU/.ER`, `results/tictactoe_selfplay_polaris_megatron/7197423_*/logs/custom_logs.log` | 7197423 | debug | Megatron 3-step smoke, layout B, attempt 3 (max_model_len fix) | Unsuccessful | Lost the startup pids race again: census peak 3938/4096, `actor_train-0` EAGAIN at NCCL watchdog during `initialize()`. Race record now 1 win / 2 losses at layout B. Exited cleanly (code 1). Prompted the thread-trim package (RAY_NUM_CPUS 16→8, TORCH_NCCL_ENABLE_MONITORING=0, NCCL socket thread caps) + thread-owner census |
+| `logs/wrap_7197427.log`, `logs/pids_census_7197427.csv`, `logs/thread_census_7197427.log`, `logs/nvidia-smi_7197427.txt`, `logs/7197427.*.OU/.ER`, `results/tictactoe_selfplay_polaris_megatron/7197427_*/` | 7197427 | debug | Megatron 3-step smoke, layout B, attempt 4 (trims + max_model_len) | **Successful — megatron GREEN** | 3 steps + `pipeline complete!`, megatron checkpoint `mp_rank_0{0..3}/model_optim_rng.pt` + `dist_optimizer` (14 G/rank), grad_norm 1.31→0.71, tps ~185–202, Exit_status 0, 11m54s. Census: pids.peak **4094/4096**, per-GPU maxima 23.3/25.2/22.1/21.8 GB. Thread census attributed 2120 threads to `ray::RequestScheduler` (its `multi_thread: 2048` Ray concurrency pool fills eagerly) |
 
 ## Decisions / changes log — megatron scale-up
 
@@ -978,3 +984,84 @@ reached the wrap's probe phase.
   pids: probe-only peak 83 of 4096; the job cgroup exposes `pids.peak` here,
   so the smoke's census will record true peaks. Exit_status 0, ~3 min of
   walltime. Proceeding to rung 3 (the layout-B megatron smoke).
+- **2026-06-12 — Megatron smoke attempt 1 (job 7197419): lost the startup pids
+  race; first measured layout-B census.** All pre-flight phases passed (16 s
+  staging, probes green, Ray up with `CPU: 16.0`). During GPU-worker
+  construction the census climbed 1512 → 3936 and `pids.peak` hit **4096**
+  (the ceiling) — `actor_train-2` died at `initialize()` with EAGAIN and the
+  NCCL watchdogs cascaded. The job *exited* (code 1, ~4 min) instead of
+  hanging — cheaper to retry than the deepspeed smoke's hangs. Measurement:
+  layout B's startup herd uses the whole 4096 budget; steady-state before GPU
+  init was ~1030. Resubmitted unchanged as job 7197421 (single-variable: race
+  variance), with thread-trim options held in reserve (RAY_NUM_CPUS 16→8,
+  NCCL thread knobs) if the race keeps losing.
+- **2026-06-12 — Megatron smoke attempt 2 (job 7197421): race won; next
+  deterministic blocker found and fixed (vLLM max_model_len).** The resubmit
+  cleared worker construction and megatron init — and answered the
+  conversion-time question: mcore_adapter's HF→mca conversion logged `End
+  loading, cost: ~17 s` per rank (page-cached eagle reads + in-memory
+  conversion; NOT a walltime concern; it re-runs per job since the model dir
+  has no mca-format checkpoint). vLLM then died at engine init:
+  `ValueError: To serve at least one request with the model's max seq len
+  (40960), 5.62 GiB KV cache is needed, which is larger than the available KV
+  cache memory (2.89 GiB)` — Qwen3-4B ships `max_position_embeddings: 40960`,
+  vLLM 0.8.4 defaults `max_model_len` to it, and at util 0.35 (14 GB) only
+  2.89 GiB remains for KV after the 8 GB weights. Pipeline sequences are
+  <=~5 k tokens, so the fix is `max_model_len: 8192` in the strategy_config
+  (passes through `**vllm_config` to the engine; 2.89 GiB ≈ 21 k cached
+  tokens at 144 KB/token). Chosen over raising gpu_memory_utilization, which
+  would shrink GPU0's margin against the colocated TP rank-0 shard. Also:
+  the census read pids 0 on this node — the wrap now derives the cgroup path
+  from `/proc/self/cgroup` instead of assuming `/sys/fs/cgroup/jobs/<jid>`.
+  GPU memory columns DID record: GPU0 9.77 GB (vLLM weights+overhead),
+  GPUs 1-3 ~1.5 GB at death. Resubmitting with the max_model_len fix.
+- **2026-06-12 — Megatron smoke attempt 3 (job 7197423): race lost again;
+  stopped re-rolling and trimmed the startup herd.** Same signature as
+  attempt 1 (census peak 3938 of 4096; `actor_train-0` EAGAIN in NCCL watchdog
+  at `initialize()`). Race record at layout B: 1 win in 3. Code audit before
+  the next attempt: (a) role inits are already serialized
+  (`agentic_pipeline.py`: actor_train → ray.get → actor_infer blocking →
+  reference blocking), so the peak is actor_train's 4 TP ranks initializing
+  concurrently — which cannot be serialized (they form collectives);
+  (b) ROLL worker actors reserve `num_cpus=0.01` (cluster.py:132), so
+  shrinking `RAY_NUM_CPUS` cannot starve actor scheduling; (c) ROLL's
+  `RequestScheduler` declares a Ray concurrency group allowing up to **2048**
+  threads (generate_scheduler.py:756; GenerateScheduler 128/256) — these
+  pools fill under request load, a rollout-phase hazard to watch, not the
+  startup killer. Trims applied to the megatron launcher: `RAY_NUM_CPUS=8`
+  (halves the idle-worker pool, ~250 threads), `TORCH_NCCL_ENABLE_MONITORING=0`
+  (drops one monitor thread per process group across the many megatron PGs),
+  `NCCL_SOCKET_NTHREADS=1`/`NCCL_NSOCKS_PERTHREAD=1`. The wrap gains a
+  thread-owner sampler (`logs/thread_census_<jid>.log`, `ps -o nlwp` top-12
+  every 30 s) so any further loss is attributable per-process.
+
+## GREEN — megatron_train path passed on Polaris — Successful, 2026-06-12
+
+**The configuration MARSHAL's real experiments use closed its training loop
+end-to-end on ALCF Polaris**: Qwen3-4B, `actor_train: megatron_train` with
+TP=4 + sequence_parallel + distributed optimizer + recompute=full, vLLM
+rollouts, frozen hf reference — the Polaris analog of Midway's GREEN jid
+50261211, on 40 GB A100s instead of 140 GB H200s.
+
+| Field | Value |
+|---|---|
+| PBS jid | **7197427** (`debug`), node `x3204c0s37b0n0` |
+| Config | `examples/tictactoe/agentic_val_tictactoe_selfplay_polaris_megatron.yaml` — layout B: actor_train TP=4 `"[0,1,2,3]"`, actor_infer vLLM `"[0]"` (util 0.35, `max_model_len: 8192`), reference `"[1]"`, env_groups 2, val disabled |
+| Steps | 3/3 — `pipeline step 0/1/2 finished` → `pipeline complete!` |
+| Walltime | **11m54s total** (14 s tarball staging, ~15 s/rank HF→mca conversion, 3 steps ≈ 95–110 s each, 53 G checkpoint write); Exit_status 0; wrap `Training exited with code: 0` |
+| Metrics | `actor_train/grad_norm` 1.31 → 0.71, `actor/kl_loss` 0.0031, `system/tps` 185–202; vLLM KV cache 21,008 tokens |
+| Checkpoint | `results/tictactoe_selfplay_polaris_megatron/7197427_20260612-075718/actor_train-{0..3}/checkpoint-2/iter_0000001/mp_rank_0{0..3}/model_optim_rng.pt` + `dist_optimizer/` (14 G/rank, 53 G run dir) + `pipeline/checkpoint-2/` — the mcore_adapter save path, distinct from deepspeed's `bf16_zero_pp_rank_*` |
+| **pids census (measured)** | steady-state ~1030 pre-GPU-init → **peak 4094 of 4096** during construction; survived by 2 threads. `logs/pids_census_7197427.csv` (140 rows) |
+| **Memory census (measured)** | per-GPU maxima 23.3 / 25.2 / 22.1 / 21.8 GB of 40 GB — layout B's 18 GB/rank + colocated role math holds with >14 GB margin |
+| Weight-sync | megatron→vLLM bucket path over NCCL broadcast: `model_update_end_onload/offload` every step; rollouts generated correctly after each sync (no `weight update progress` tqdm on this path — that line is the deepspeed per-parameter sync's) |
+| Thread attribution | `logs/thread_census_7197427.log`: **`ray::RequestScheduler` owns 2120 threads** — Ray eagerly fills its `multi_thread: 2048` concurrency-group pool (generate_scheduler.py:756). Single largest pids consumer; also explains the 0.5B smoke's ~50% race (same pool + fewer workers) |
+
+Four attempts to GREEN: 7197419 (race loss), 7197421 (race won; found vLLM
+`max_model_len` 40960 default blocker; census path bug), 7197423 (race loss →
+trim package), 7197427 (GREEN at 2 threads of margin).
+
+### Reproduce
+```bash
+cd /lus/eagle/projects/lighthouse-uchicago/members/mehta5/MARSHAL
+qsub scripts/train_polaris_megatron.pbs   # defaults to marshal-train-megatron-venv.tar
+```

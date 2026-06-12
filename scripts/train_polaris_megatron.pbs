@@ -55,7 +55,14 @@ echo "=== Job $PBS_JOBID on $(hostname) at $(date) ==="
 # every 5 s into logs/pids_census_<jid>.csv. nvidia-smi is bounded by timeout
 # and lives in a detached subshell so a wedged GPU can stall only the census,
 # never the job.
-CGROUP_DIR="/sys/fs/cgroup/jobs/${PBS_JOBID%%.*}"
+# Derive the cgroup from /proc/self/cgroup (authoritative). On one node
+# (job 7197421) the literal /sys/fs/cgroup/jobs/<jid> path answered pids.max
+# but read pids.current=0 for the whole run; the cgroup the wrap itself runs
+# in cannot read 0.
+CG_SELF=$(awk -F: 'END{print $3}' /proc/self/cgroup)
+CGROUP_DIR="/sys/fs/cgroup${CG_SELF}"
+[ -r "$CGROUP_DIR/pids.max" ] || CGROUP_DIR="/sys/fs/cgroup/jobs/${PBS_JOBID%%.*}"
+echo "census cgroup dir: $CGROUP_DIR (from /proc/self/cgroup: ${CG_SELF})"
 CENSUS_CSV="$PROJECT_ROOT/logs/pids_census_${PBS_JOBID%%.*}.csv"
 echo "epoch_s,pids_current,pids_peak,gpu_mem_used_mib_0_1_2_3" > "$CENSUS_CSV"
 echo "pids.max for this job: $(cat $CGROUP_DIR/pids.max 2>/dev/null || echo unknown)"
@@ -68,6 +75,17 @@ echo "pids.max for this job: $(cat $CGROUP_DIR/pids.max 2>/dev/null || echo unkn
   done >> "$CENSUS_CSV"
 ) &
 CENSUS_PID=$!
+# Thread-owner sampler: every 30 s record which processes own the threads
+# (nlwp = thread count) so a lost pids race becomes an attributable budget
+# instead of "EAGAIN again". The node is exclusively ours, so ps is all-signal.
+THREAD_LOG="$PROJECT_ROOT/logs/thread_census_${PBS_JOBID%%.*}.log"
+(
+  while sleep 30; do
+    echo "=== $(date +%s) total_threads=$(cat "$CGROUP_DIR/pids.current" 2>/dev/null || echo NA)"
+    ps -e -o nlwp=,pid=,comm= --sort=-nlwp | head -12
+  done >> "$THREAD_LOG"
+) &
+THREAD_CENSUS_PID=$!
 
 echo ">>> phase: modules"
 
@@ -212,7 +230,7 @@ export PYTHONPATH="$PROJECT_ROOT:${PYTHONPATH:-}"
 # ── Cleanup on exit (native — Ray procs are this job's children on this node) ──
 cleanup() {
     echo "$(date): Cleanup triggered (exit)"
-    kill "$CENSUS_PID" 2>/dev/null || true
+    kill "$CENSUS_PID" "$THREAD_CENSUS_PID" 2>/dev/null || true
     ray stop --force 2>/dev/null || true
     sleep 2
     pkill -u "$USER" -f "ray::"      2>/dev/null || true

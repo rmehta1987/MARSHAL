@@ -77,10 +77,21 @@ export NUMEXPR_NUM_THREADS=1
 export VECLIB_MAXIMUM_THREADS=1
 export RAYON_NUM_THREADS=1
 export TOKENIZERS_PARALLELISM=false
-# Cap Ray's CPU count so it prestarts ~16 idle workers instead of one per
+# Cap Ray's CPU count so it prestarts ~8 idle workers instead of one per
 # detected core (~64; each idle worker carries ~30+ Ray threads). ROLL's
 # start_ray_cluster() reads RAY_NUM_CPUS and passes it to `ray start --num-cpus`.
-export RAY_NUM_CPUS=16
+# 16 -> 8 for the megatron layout: jobs 7197419/7197423 lost the startup race
+# with pids.peak 3936/3938 of 4096. ROLL worker actors reserve only
+# num_cpus=0.01 (cluster.py:132), so 8 CPUs cannot starve scheduling, and the
+# halved idle pool returns ~250 threads of headroom at the peak window.
+export RAY_NUM_CPUS=8
+# Trim per-process-group NCCL host threads during megatron init (the measured
+# peak window): drop torch's per-PG monitor thread (the watchdog stays) and
+# keep NCCL bootstrap socket threading minimal. Worth ~50-100 threads across
+# the 4 TP ranks' many process groups.
+export TORCH_NCCL_ENABLE_MONITORING=0
+export NCCL_SOCKET_NTHREADS=1
+export NCCL_NSOCKS_PERTHREAD=1
 # Cap ninja/compiler bursts for any JIT that fires under the crowded Ray job.
 export MAX_JOBS=4
 export TORCH_CUDA_ARCH_LIST=${TORCH_CUDA_ARCH_LIST:-8.0}
