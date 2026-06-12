@@ -226,7 +226,7 @@ bundled cu124 libs must win at runtime.)
 | Steps | **3 / 3** — `pipeline step 0/1/2 finished` → `pipeline complete!` |
 | Training wallclock | step-0 start 21:39:39 → `pipeline complete!` 21:41:55 = **~2m16s** for 3 steps (total job ~8 min incl. tarball stage + model load) |
 | Real metrics (step 2) | `actor/pg_loss`, `actor/kl_loss=0.00144`, `actor/total_loss=0.000288`, `actor_train/grad_norm=1.463`, `critic/ref_log_prob/mean=-0.4618`, `system/tps=242.6`; self-play `env/TicTacToe/winner=1.0` |
-| **Checkpoint** | `results/.../7186746_20260606-213348/actor_train-0/checkpoint-2/` (**12 G** full DeepSpeed ckpt: `pytorch_model.bin`, ZeRO optimizer state, `zero_to_fp32.py`, tokenizer) + `pipeline/checkpoint-2/` |
+| **Checkpoint** | `results/.../7186746_20260606-213348/actor_train-0/checkpoint-2/` (**12 G** full DeepSpeed ckpt: `pytorch_model.bin`, ZeRO optimizer state, `zero_to_fp32.py`, tokenizer) + `pipeline/checkpoint-2/` (heavy blobs pruned 2026-06-12 after verification; `checkpoint_listing_proof.txt` retained in the run dir) |
 | **TensorBoard** | `results/.../7186746_20260606-213348/tensorboard/events.out.tfevents.1780781698.x3105c0s1b1n0.654630.0` (49 K) |
 | Exit | wrap log: **`Training exited with code: 0`** → `Cleanup complete`; job ended on its own (no qdel) |
 | Log | `results/.../7186746_20260606-213348/logs/custom_logs.log` ; wrap `logs/wrap_7186746.log` |
@@ -883,6 +883,7 @@ reached the wrap's probe phase.
 | `logs/wrap_7197423.log`, `logs/pids_census_7197423.csv`, `logs/nvidia-smi_7197423.txt`, `logs/7197423.*.OU/.ER`, `results/tictactoe_selfplay_polaris_megatron/7197423_*/logs/custom_logs.log` | 7197423 | debug | Megatron 3-step smoke, layout B, attempt 3 (max_model_len fix) | Unsuccessful | Lost the startup pids race again: census peak 3938/4096, `actor_train-0` EAGAIN at NCCL watchdog during `initialize()`. Race record now 1 win / 2 losses at layout B. Exited cleanly (code 1). Prompted the thread-trim package (RAY_NUM_CPUS 16→8, TORCH_NCCL_ENABLE_MONITORING=0, NCCL socket thread caps) + thread-owner census |
 | `logs/wrap_7197427.log`, `logs/pids_census_7197427.csv`, `logs/thread_census_7197427.log`, `logs/nvidia-smi_7197427.txt`, `logs/7197427.*.OU/.ER`, `results/tictactoe_selfplay_polaris_megatron/7197427_*/` | 7197427 | debug | Megatron 3-step smoke, layout B, attempt 4 (trims + max_model_len) | **Successful — megatron GREEN** | 3 steps + `pipeline complete!`, megatron checkpoint `mp_rank_0{0..3}/model_optim_rng.pt` + `dist_optimizer` (14 G/rank), grad_norm 1.31→0.71, tps ~185–202, Exit_status 0, 11m54s. Census: pids.peak **4094/4096**, per-GPU maxima 23.3/25.2/22.1/21.8 GB. Thread census attributed 2120 threads to `ray::RequestScheduler` (its `multi_thread: 2048` Ray concurrency pool fills eagerly) |
 | `logs/wrap_7197442.log`, `logs/pids_census_7197442.csv`, `logs/thread_census_7197442.log`, `logs/nvidia-smi_7197442.txt`, `logs/7197442.*.OU/.ER`, `results/tictactoe_selfplay_polaris_megatron/7197442_*/` | 7197442 | debug | **20-step proof run** (megatron layout B + RequestScheduler pool patch), `..._megatron_20step.yaml` | **Successful — the scale-up GREEN** | 20/20 steps, `pipeline complete!`, Exit_status 0, **37m37s**; incremental `checkpoint-9` (written mid-run) + final `checkpoint-19` (`mp_rank_0{0..3}` + `dist_optimizer`, 106 G total); census pids.peak **2313**/4096 (pool patch: was 4094), per-GPU maxima 23.6/25.3/22.3/22.0 GB; tps to 282 |
+| `logs/wrap_7197445.log`, `logs/nvidia-smi_7197445.txt`, `logs/7197445.*.OU/.ER`, `results/tictactoe_selfplay_polaris_smoke/7197445_*/` | 7197445 | debug | 0.5B deepspeed smoke regression from the NEW megatron tarball + RequestScheduler pool patch | Successful | GREEN baseline intact after the env moved: 3/3 steps, `weight update progress: 100%` each step, `pipeline complete!`, `checkpoint-2` written (pruned to listing proof), Exit_status 0, 6m22s — and it won the startup race first try with the pool patch in effect |
 
 ## Decisions / changes log — megatron scale-up
 
@@ -1113,3 +1114,13 @@ plus the RequestScheduler pool patch.
   same way. A 0.5B deepspeed regression from the NEW tarball + the pool patch
   is running as job 7197445 (the shared env moved; the GREEN baseline must not
   silently rot) — result recorded in the ledger.
+- **2026-06-12 — 0.5B deepspeed baseline regression PASSED from the new tarball
+  (job 7197445).** The proven smoke config, staged from
+  `marshal-train-megatron-venv.tar`, with the real `RecvBucketManager` import
+  active and the RequestScheduler pool patch: 3/3 steps, per-parameter NCCL
+  weight-sync at 100% each step, `pipeline complete!`, Exit_status 0 in
+  **6m22s** (vs ~8 min historically), winning the startup race on the first
+  submission. Both training strategies (deepspeed_train and megatron_train)
+  are now proven on Polaris from the same extended venv, and the GREEN
+  baseline did not rot. Checkpoint pruned to `checkpoint_listing_proof.txt`
+  per the established practice.
