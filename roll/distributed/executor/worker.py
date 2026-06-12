@@ -122,6 +122,36 @@ class Worker:
 
     @staticmethod
     def get_free_port():
+        # The original bind(("", 0)) probe (kernel-assigned ephemeral port,
+        # then close) is unsafe here in two ways, both observed killing jobs
+        # on ALCF Polaris (7197546/7197919 — EADDRINUSE on the SAME port,
+        # 49717, on two different nodes):
+        #   1. The kernel's ephemeral allocator search is deterministic given
+        #      similar node/socket state, so independent probes from DIFFERENT
+        #      processes of the same job are handed the SAME port; the first
+        #      real bind wins, the second dies (rendezvous TCPStore EADDRINUSE).
+        #   2. A probed-then-closed ephemeral port can also be re-claimed as an
+        #      outgoing-connection source port (Ray gRPC/NCCL bootstrap churn)
+        #      before the real bind happens.
+        # Probe instead with a cryptographically random port BELOW the kernel
+        # ephemeral range (ip_local_port_range default 32768-60999): such ports
+        # are never kernel-assigned (no source-port collisions, no determinism),
+        # and bindability is verified before returning. random.SystemRandom is
+        # REQUIRED rather than the module-level random: ROLL calls set_seed()
+        # in every worker, so seeded random would draw the SAME "random" port
+        # sequence in every process — worse than the kernel allocator.
+        import random
+
+        rng = random.SystemRandom()
+        for _ in range(128):
+            port = rng.randint(20000, 32000)
+            with socket.socket() as sock:
+                try:
+                    sock.bind(("", port))
+                    return port
+                except OSError:
+                    continue
+        # Last resort: the original kernel-assigned probe.
         with socket.socket() as sock:
             sock.bind(("", 0))
             return sock.getsockname()[1]

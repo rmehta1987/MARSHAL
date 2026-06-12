@@ -884,7 +884,8 @@ reached the wrap's probe phase.
 | `logs/wrap_7197427.log`, `logs/pids_census_7197427.csv`, `logs/thread_census_7197427.log`, `logs/nvidia-smi_7197427.txt`, `logs/7197427.*.OU/.ER`, `results/tictactoe_selfplay_polaris_megatron/7197427_*/` | 7197427 | debug | Megatron 3-step smoke, layout B, attempt 4 (trims + max_model_len) | **Successful — megatron GREEN** | 3 steps + `pipeline complete!`, megatron checkpoint `mp_rank_0{0..3}/model_optim_rng.pt` + `dist_optimizer` (14 G/rank), grad_norm 1.31→0.71, tps ~185–202, Exit_status 0, 11m54s. Census: pids.peak **4094/4096**, per-GPU maxima 23.3/25.2/22.1/21.8 GB. Thread census attributed 2120 threads to `ray::RequestScheduler` (its `multi_thread: 2048` Ray concurrency pool fills eagerly) |
 | `logs/wrap_7197442.log`, `logs/pids_census_7197442.csv`, `logs/thread_census_7197442.log`, `logs/nvidia-smi_7197442.txt`, `logs/7197442.*.OU/.ER`, `results/tictactoe_selfplay_polaris_megatron/7197442_*/` | 7197442 | debug | **20-step proof run** (megatron layout B + RequestScheduler pool patch), `..._megatron_20step.yaml` | **Successful — the scale-up GREEN** | 20/20 steps, `pipeline complete!`, Exit_status 0, **37m37s**; incremental `checkpoint-9` (written mid-run) + final `checkpoint-19` (`mp_rank_0{0..3}` + `dist_optimizer`, 106 G total); census pids.peak **2313**/4096 (pool patch: was 4094), per-GPU maxima 23.6/25.3/22.3/22.0 GB; tps to 282 |
 | `logs/wrap_7197445.log`, `logs/nvidia-smi_7197445.txt`, `logs/7197445.*.OU/.ER`, `results/tictactoe_selfplay_polaris_smoke/7197445_*/` | 7197445 | debug | 0.5B deepspeed smoke regression from the NEW megatron tarball + RequestScheduler pool patch | Successful | GREEN baseline intact after the env moved: 3/3 steps, `weight update progress: 100%` each step, `pipeline complete!`, `checkpoint-2` written (pruned to listing proof), Exit_status 0, 6m22s — and it won the startup race first try with the pool patch in effect |
-| `logs/wrap_7197546.log`, `logs/pids_census_7197546.csv`, `logs/thread_census_7197546.log`, `logs/nvidia-smi_7197546.txt`, `logs/7197546.*.OU/.ER`, `results/tictactoe_selfplay_polaris_megatron_long/7197546_*/logs/custom_logs.log` | 7197546 | preemptable | Megatron LONG run (400 steps, 12 h walltime, `..._megatron_long.yaml`), attempt 1 | Unsuccessful | New failure mode, NOT the pids race (census peak 2198/4096 — pool patch holding): TCPStore rendezvous-port collision at `setup_collective_group` during the model_update warmup — `RuntimeError: The server socket has failed to listen ... port: 49717 ... EADDRINUSE`. Root cause: `model_update_group.py:120` probes a free port (`get_free_port()`: bind(0)/close) on the src worker and the TCPStore binds it later — in the probe-to-bind window Ray's startup ephemeral-port churn re-claimed it. Same code passed 7197427/7197442/7197445 → ~1-in-6 transient; resubmitted unchanged per the retry-don't-debug discipline. Exited cleanly (code 1, 6m39s — pipefail worked). Positives banked: first run on a preemptable node (staging 14 s, probes green, queue wait ~3.5 h), auto-resume scan correctly chose fresh start |
+| `logs/wrap_7197546.log`, `logs/pids_census_7197546.csv`, `logs/thread_census_7197546.log`, `logs/nvidia-smi_7197546.txt`, `logs/7197546.*.OU/.ER`, `results/tictactoe_selfplay_polaris_megatron_long/7197546_*/logs/custom_logs.log` | 7197546 | preemptable | Megatron LONG run (400 steps, 12 h walltime, `..._megatron_long.yaml`), attempt 1 | Unsuccessful | NOT the pids race (census peak 2198/4096 — pool patch holding): TCPStore rendezvous-port collision at `setup_collective_group` during the model_update warmup — `RuntimeError: ... port: 49717 ... EADDRINUSE`. The comm-plan dump shows 49717 was allocated to group `model_update_actor_train_2_to_actor_infer_` by `get_free_port()` (bind(0) probe) and was already taken at bind time. Initially read as a ~1-in-6 transient and resubmitted unchanged (7197919); attempt 2 proved it deterministic — see that row. Exited cleanly (code 1, 6m39s). Positives banked: first run on a preemptable node (staging 14 s, probes green, queue wait 3h38m), auto-resume scan correctly chose fresh start |
+| `logs/wrap_7197919.log`, `logs/pids_census_7197919.csv`, `logs/thread_census_7197919.log`, `logs/nvidia-smi_7197919.txt`, `logs/7197919.*.OU/.ER`, `results/tictactoe_selfplay_polaris_megatron_long/7197919_*/logs/custom_logs.log` | 7197919 | preemptable | Megatron LONG run, attempt 2 (unchanged resubmit — single-variable race test) | Unsuccessful, but converted the diagnosis from transient to deterministic | EADDRINUSE on the **same port 49717**, on a DIFFERENT node (`x3209c0s13b0n0` vs `x3209c0s37b1n0`) and a DIFFERENT victim: `reference-0`'s cluster dist-init master port (registered in SharedStorage as `10.201.4.62:49717`) — the pipeline died before any comm plan was built. Two independent bind(0) probes returning the identical port across nodes/runs is not chance: the kernel ephemeral allocator's search is deterministic given near-identical node/socket state, so multiple processes of the same job are handed the same "free" port and the second binder dies. ROLL's SharedStorage port registry cannot help — it dedups only registered cluster-master ports, and `model_update_group.py:120` bypasses it. Fix: re-ranged `Worker.get_free_port()` (see decisions log). Exited cleanly (code 1, 6m16s; pids peak 2166/4096; queue wait 2h04m) |
 
 ## Decisions / changes log — megatron scale-up
 
@@ -1213,3 +1214,32 @@ discipline vs the proven 20-step config: only `max_steps` 20→400,
   `Worker.get_free_port()` to probe a static range below
   `ip_local_port_range` (e.g. 20000–32000) so probed rendezvous ports cannot
   collide with kernel-assigned ephemeral source ports.
+- **2026-06-12 — Attempt 2 (job 7197919, unchanged) failed on the SAME port
+  49717 → deterministic, not a race; patched `Worker.get_free_port()`.**
+  Different node (`x3209c0s13b0n0`), different victim (`reference-0`'s
+  cluster dist-init master port, registered via the SharedStorage port
+  registry; the pipeline died before any model-update comm plan existed),
+  same port number. Diagnosis revised: the kernel's bind(("",0)) ephemeral
+  allocator search is deterministic given the near-identical state of these
+  freshly-provisioned rack-sibling nodes, so independent probes from
+  DIFFERENT processes of the same job are handed the SAME port; the first
+  process to actually bind (TCPStore) wins and the second dies with
+  EADDRINUSE. ROLL's own SharedStorage `MASTER_ADDR_PORT` dedup loop
+  (worker.py:56–66) shows upstream knew about cross-cluster collisions, but
+  it only covers registered cluster-master ports — `model_update_group.py:120`
+  calls `get_free_port` directly and bypasses it, and the registry cannot
+  protect the probe-to-bind time gap anyway. **Patch (in-repo
+  `roll/distributed/executor/worker.py:get_free_port`, the single
+  definition; imported via PYTHONPATH so no tarball rebuild):** probe a
+  cryptographically random port in **20000–32000** — below
+  `ip_local_port_range` (32768–60999, verified), so probes can never collide
+  with kernel-assigned source ports or other bind(0) users (vLLM's
+  `get_open_port`), and are process-independent — verifying bindability
+  before returning, with the original bind(0) as a 128-miss fallback.
+  `random.SystemRandom` is load-bearing: ROLL `set_seed()`s every worker, so
+  the seeded module-level `random` would draw IDENTICAL "random" sequences
+  in every process. Validated on the login node: 50/50 unique bindable
+  in-range ports; two `seed(42)`-seeded subprocesses drew disjoint
+  sequences; a held port is never returned. Residual risk: two concurrent
+  probes drawing the same number in the same instant (~0.5%/run birthday
+  bound across ~12 ports) — accepted. Resubmitted as job **7198332**.
