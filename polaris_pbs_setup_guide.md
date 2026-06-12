@@ -14,7 +14,7 @@ dead-ends folded into sub-bullets so you don't relearn them.
 
 - `$BASE` = `/lus/eagle/projects/lighthouse-uchicago/members/mehta5`
 - `$REPO` = `$BASE/MARSHAL` (the project root, where you run `qsub`)
-- Sub-bullets marked **✗ Didn't work:** record a thing we tried that failed and why —
+- Sub-bullets marked **Unsuccessful approach:** record a thing we tried that failed and why —
   skip past them, they're there so you don't repeat them.
 
 ---
@@ -32,12 +32,12 @@ dead-ends folded into sub-bullets so you don't relearn them.
 | Conda module | `conda/2025-09-25` (base py 3.12.11) |
 | Filesystems | must pass `-l filesystems=home:eagle` or PBS rejects the job |
 
-- **✗ Didn't work: `-A Uchicago-lighthouse`.** PBS rejects it (`Project ... not
+- **Unsuccessful approach: `-A Uchicago-lighthouse`.** PBS rejects it (`Project ... not
   found`). The real allocation name is `lighthouse-uchicago` — confirm with
   `sbank-list-allocations` if in doubt.
-- **✗ Didn't work: omitting `-l filesystems=home:eagle`.** Polaris refuses the job
+- **Unsuccessful approach: omitting `-l filesystems=home:eagle`.** Polaris refuses the job
   outright. Every `qsub` must declare the filesystems it touches.
-- **✗ Didn't work: the Apptainer/container route from the handoff.** No `.sif` exists
+- **Unsuccessful approach: the Apptainer/container route from the handoff.** No `.sif` exists
   on Polaris, the Aliyun ROLL registry is unreachable from ALCF, and `container_extras/`
   is `.gitignore`'d. We go **native venv** instead (Step 1).
 
@@ -77,11 +77,11 @@ Target resolved set: `torch 2.6.0+cu124 · vllm 0.8.4 · ray 2.46.0 · deepspeed
 · transformers 4.51.2 · tokenizers 0.21.4 · numpy 1.26.4 · open_spiel 1.6.15`.
 Verify with `python -c "import torch, vllm, ray, deepspeed, pyspiel; print('ok')"`.
 
-- **✗ Didn't work: `pip install -r requirements*.txt` blindly.** ROLL's requirement
+- **Unsuccessful approach: `pip install -r requirements*.txt` blindly.** ROLL's requirement
   files and the vllm/ray/deepspeed trio pull **transformers 5.x / numpy 2.x** — the
   exact "transformers must be `<5`" hazard (5.x removed `all_special_tokens_extended`).
   Step 3 must run *after* step 2 to claw the pins back down.
-- **✗ Didn't work: using ALCF's base-conda torch (2.8.0).** ALCF docs recommend not
+- **Unsuccessful approach: using ALCF's base-conda torch (2.8.0).** ALCF docs recommend not
   pip-installing a custom torch, but ROLL/vllm 0.8.4 *pin* `torch==2.6.0`. We
   deliberately deviate. This is safe because cu124 is Polaris's native CUDA and the
   smoke is single-node (no ALCF multi-node fabric needed).
@@ -109,14 +109,14 @@ tar cf $BASE/marshal-train-venv.tar -C marshal-train .   # ~8.3 G, one-time ~20 
 The PBS wrap (Step 4) reads this one file (~20 s) and extracts to `/local/scratch`
 (~12 s), then runs python from there.
 
-- **✗ Didn't work: importing the venv directly off eagle.** `import torch` on a cold
+- **Unsuccessful approach: importing the venv directly off eagle.** `import torch` on a cold
   compute node **hung past 300 s** (vs 47 s on the login node). Measured root cause:
   one 988 MB sequential read off eagle = 3 s (fine), but copying the venv's **71,700
   files** off eagle = **1137 s**. Big files fast, many small files fatal.
-- **✗ Didn't work: putting the venv on `/home`.** It fits (45 G quota) but `/home` is
+- **Unsuccessful approach: putting the venv on `/home`.** It fits (45 G quota) but `/home` is
   *also* Lustre — same small-file problem. `/soft` is fast but read-only. **Only
   node-local SSD is both fast and writable**, hence per-job staging from a tarball.
-- **✗ Didn't work: `source $VENV/bin/activate` on the staged copy.** A relocated
+- **Unsuccessful approach: `source $VENV/bin/activate` on the staged copy.** A relocated
   venv's `activate` hardcodes the *original* build path. The wrap activates manually
   (prepend `$VENV/bin` to `PATH`, set `VIRTUAL_ENV`) so the location-independent
   `pyvenv.cfg` drives `sys.path`. Never source a relocated venv's activate.
@@ -176,21 +176,21 @@ Things the wrap/launcher get right that you must not regress:
 
 What each of those *fixes* (these are the dead-ends, as sub-bullets):
 
-- **✗ Didn't work: leaving CPU thread pools at default.** Each of the colocated workers
+- **Unsuccessful approach: leaving CPU thread pools at default.** Each of the colocated workers
   spawned 64 OpenBLAS + 64 OMP threads; the combined total blew past the job cgroup's
   `pids.max=4096` → `OpenBLAS blas_thread_init: pthread_create failed ... Resource
   temporarily unavailable` and workers died at construction. **Not OOM, not `ulimit -u`
   (that's ~2 M) — the cgroup thread cap, which we can't raise from inside the job.**
-- **✗ Didn't work: capping threads at 4 instead of 1.** Even 4/process still hit EAGAIN
+- **Unsuccessful approach: capping threads at 4 instead of 1.** Even 4/process still hit EAGAIN
   during the `fused_adam` compile burst (`gcc-12: cannot execute 'cc1plus': vfork:
   Resource temporarily unavailable`). Dropped to 1.
-- **✗ Didn't work: `CC=gcc-14` (the conda module default).** CUDA 12.4 `nvcc` caps the
+- **Unsuccessful approach: `CC=gcc-14` (the conda module default).** CUDA 12.4 `nvcc` caps the
   host compiler at ≤13.2 and rejects gcc-14. gcc-12 is ≥9 (deepspeed's floor) and ≤13.2.
-- **✗ Didn't work: forcing `VLLM_USE_V1=0`** to dodge a V1 serialization bug. V0 spawns
+- **Unsuccessful approach: forcing `VLLM_USE_V1=0`** to dodge a V1 serialization bug. V0 spawns
   *more* startup threads than V1, so under `pids.max=4096` V0 died at
   `RolloutScheduler.__init__` *before* training, while V1 reaches the loop. Keep V1 and
   fix the serialization a different way (Step 5).
-- **✗ Didn't work: `nvidia-smi` in the foreground.** It hung in an unkillable D-state on
+- **Unsuccessful approach: `nvidia-smi` in the foreground.** It hung in an unkillable D-state on
   multiple debug nodes, even under `timeout`. The wrap runs it fully detached
   (diagnostic only) and uses a separate fail-fast torch CUDA probe
   (`scripts/polaris_gpu_probe.py`, bounded by `timeout 300`, exit 42 on failure) so a
@@ -211,10 +211,10 @@ heavy lifting and are easy to get wrong:
 
 Why each, with the dead-ends:
 
-- **✗ Didn't work: `num_gpus_per_node: 4` with 4 ranks/role (the original).** ~12 GPU
+- **Unsuccessful approach: `num_gpus_per_node: 4` with 4 ranks/role (the original).** ~12 GPU
   workers × hundreds of threads each → past `pids.max=4096` → EAGAIN. Shrinking to 1
   worker/role was required.
-- **✗ Didn't work: colocating actor_train + actor_infer on the SAME GPU** (the obvious
+- **Unsuccessful approach: colocating actor_train + actor_infer on the SAME GPU** (the obvious
   1-GPU way to save processes). When src and tgt share `(node, gpu)`, ROLL's comm-plan
   takes the **P2P** weight-sync path (`update_parameter.remote(weight=<cuda tensor>)`),
   and vLLM 0.8.4's **V1** engine msgpack-serializes RPC args across processes. The CUDA
@@ -223,11 +223,11 @@ Why each, with the dead-ends:
   not serializable.** Putting train and infer on *different* GPUs makes the comm-plan
   use **NCCL broadcast** (`collective.broadcast`, no msgpack) — V1-safe, no tensor ever
   serialized. Same pids footprint (still 3 workers), just spread across 3 of the 4 A100s.
-- **✗ Didn't work: `env_groups: 16` (the original).** That spawns one RequestScheduler +
+- **Unsuccessful approach: `env_groups: 16` (the original).** That spawns one RequestScheduler +
   `_QueueActor` per env instance = ~80 envs = ~190 Ray processes on one node →
   pids.max exhaustion. 2 groups → ~10 envs → ~35 processes → headroom. (Smoke only
   needs the loop to close; this just runs more trajectories per env sequentially.)
-- **✗ Didn't work: `device_mapping: [0]`** as a YAML list. ROLL `eval()`s
+- **Unsuccessful approach: `device_mapping: [0]`** as a YAML list. ROLL `eval()`s
   `device_mapping`, so it must be a **string**: `device_mapping: "[0]"`.
 - **Also patched out:** the step-0 validation. `0 % eval_steps == 0` fired an implicit
   eval whose val RolloutScheduler was an extra startup actor (more pids pressure) and a
@@ -257,7 +257,7 @@ wrap log prints **`Training exited with code: 0`**.
   ~half the time** at `RolloutScheduler.__init__` with EAGAIN. A lost run *hangs* —
   `qdel <jid>` and resubmit. The durable fix is an **ALCF ticket to raise the per-job
   cgroup `pids.max`** (see scale-up).
-- **✗ Didn't work: relying on `qdel` to promptly reap a hung job.** A process wedged in
+- **Unsuccessful approach: relying on `qdel` to promptly reap a hung job.** A process wedged in
   D-state (hung GPU / nvidia-smi) keeps the job `R` and burns walltime even after
   `qdel` returns 0. Nothing to do but let it hit walltime or escalate the node.
 - **Infra note:** during the bring-up, many debug nodes were offlined with Lustre
@@ -339,7 +339,7 @@ needs queue, walltime, checkpoint, and resume changes:
 - **Persisted caches help long/repeated runs.** `TORCH_EXTENSIONS_DIR` (cached
   `fused_adam.so`), `TRITON_CACHE_DIR`, `TORCHINDUCTOR_CACHE_DIR`, and `HF_HOME` are all
   on eagle and reused across jobs — keep them; they remove the compile/download bursts.
-- **✗ Didn't work / watch out:** the startup EAGAIN pids race is *per job submission*,
+- **Unsuccessful approach / watch out:** the startup EAGAIN pids race is *per job submission*,
   so a long run that gets requeued re-rolls that ~50% dice each time. Getting
   `pids.max` raised (scale-up section) matters even more for long unattended runs,
   otherwise a requeue can silently hang. Until then, monitor and resubmit on hang.

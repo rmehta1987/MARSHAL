@@ -1,0 +1,195 @@
+defaults:
+  - ../config/envs@_here_
+  - ../config/deepspeed_zero@_here_
+  - ../config/deepspeed_zero2@_here_
+  - ../config/deepspeed_zero3@_here_
+  - ../config/deepspeed_zero3_cpuoffload@_here_
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+
+# Polaris MEGATRON smoke: port of the Midway-proven megatron config
+# (agentic_val_tictactoe_selfplay_midway_megatron.yaml, GREEN jid 50261211) to
+# ALCF Polaris (4x A100-40GB, PBS, job cgroup pids.max=4096). Strategy under
+# test: actor_train megatron_train (mcore_adapter + megatron-core) with TP=4 +
+# sequence_parallel + distributed optimizer + recompute=full — the setup
+# MARSHAL's real configs use. Model Qwen3-4B (TP=4 needs num_attention_heads %
+# TP == 0: Qwen3-4B has 32 attn / 8 KV heads, both divide by 4; Qwen2.5-0.5B's
+# 14 heads do not, which is why the megatron path requires the 4B model).
+#
+# Polaris deltas vs the Midway megatron config — all driven by the two hard
+# constraints (40 GiB/GPU instead of 140 GiB; whole-job pids.max=4096):
+#
+#  LAYOUT B ("TP=4 + single-GPU infer/ref"), see polaris_pbs_notes.md:
+#  - actor_train: TP=4 across all 4 GPUs ("[0,1,2,3]"). Megatron training
+#    state for 4.0B params at bf16 weights + fp32 grads + fp32 master + Adam
+#    moments is ~18 B/param ~= 72 GB, sharded by TP -> ~18 GB/GPU: fits a
+#    40 GB A100 with recompute=full activations. (TP=2 would be ~36 GB/rank —
+#    no headroom; rejected on paper.)
+#  - actor_infer: vLLM on ONE GPU ("[0]") — Qwen3-4B bf16 weights are ~8 GB,
+#    well within one A100, and 1 vLLM worker instead of 4 saves hundreds of
+#    threads against pids.max=4096 (measured: 3 GPU workers pass, 9-12 fail;
+#    this layout totals 6).
+#  - reference: hf_infer on ONE GPU ("[1]") for the same pids reason.
+#  - Weight-sync: with 4 distinct TP src ranks, ROLL's make_comm_plan assigns
+#    a non-colliding src rank to each tgt device, so megatron->vllm sync goes
+#    through the NCCL-broadcast bucket path (update via collective.broadcast;
+#    under vLLM V1 only bucket *metadata* is msgpack'd) — the V1-safe path.
+#    No P2P, no tensor serialization. device_mapping MUST be strings (ROLL
+#    eval()s them; a bare YAML list dies at config parse).
+#
+#  MEMORY DIALS:
+#  - gpu_memory_utilization 0.6 -> 0.35: 0.6 of 40 GB = 24 GB is sized for
+#    H200s. 0.35 -> 14 GB = 8 GB weights + ~5.7 GB KV cache. Qwen3-4B KV is
+#    ~144 KB/token (36 layers x 2 x 8 kv-heads x 128 dim x 2 B) -> ~40k
+#    cached tokens, ample for tictactoe rollouts (16 trajs, <=1024 new toks).
+#
+#  PIDS DIALS (inherited from the GREEN Polaris smoke, jid 7186746):
+#  - env_groups 16 -> 2 (n_groups [2]) for both env managers: each env
+#    instance spawns Ray actor processes; 16 groups = ~80 envs blew the cgroup
+#    pids cap on the smoke. Megatron makes pids TIGHTER, never looser.
+#  - eval_steps 100 > max_steps 3: the in-repo agentic_pipeline.py patch then
+#    skips the val RolloutScheduler entirely (fewer startup actors).
+#
+# Steps kept at 3 (path-validation smoke, not a scale test). max_new_tokens
+# 1024: Qwen3 thinks in <think> blocks; starving it produces format-retry
+# failures that masquerade as pipeline bugs (a model behavior, not a fault).
+exp_name: "agentic_tictactoe_selfplay_polaris_megatron"
+seed: 42
+system_envs:
+  USE_MODELSCOPE: "0"
+
+track_with: tensorboard
+tracker_kwargs:
+  log_dir: ${oc.env:ROLL_OUTPUT_DIR}/tensorboard
+
+num_gpus_per_node: 4
+
+max_steps: 3
+save_steps: 3
+logging_steps: 1
+eval_steps: 100
+resume_from_checkpoint: false
+
+rollout_batch_size: 16
+val_batch_size: 16
+sequence_length: 4096
+
+dual_clip_loss: true
+ppo_epochs: 1
+adv_estimator: "reinforce"
+init_kl_coef: 0.0
+use_kl_loss: true
+kl_loss_coef: 0.20
+
+whiten_advantages: true
+entropy_loss_coef: 0
+
+pretrain: /lus/eagle/projects/lighthouse-uchicago/members/mehta5/models/Qwen3-4B
+
+actor_train:
+  model_args:
+    flash_attn: fa2
+    disable_gradient_checkpointing: false
+    dtype: bf16
+    model_type: ~
+  training_args:
+    lr_scheduler_type: cosine_with_min_lr
+    learning_rate: 1e-6
+    weight_decay: 0.05
+    adam_beta1: 0.9
+    adam_beta2: 0.95
+    per_device_train_batch_size: 1
+    gradient_accumulation_steps: 1
+    warmup_steps: 0
+  data_args:
+    template: qwen3
+  strategy_args:
+    strategy_name: megatron_train
+    strategy_config:
+      sequence_parallel: true
+      tensor_model_parallel_size: 4
+      pipeline_model_parallel_size: 1
+      expert_model_parallel_size: 1
+      use_distributed_optimizer: true
+      recompute_granularity: full
+      accumulate_allreduce_grads_in_fp32: true
+      check_for_nan_in_loss_and_grad: false
+  device_mapping: "[0,1,2,3]"   # TP=4: one 18 GB training-state shard per A100
+  infer_batch_size: 2
+
+actor_infer:
+  model_args:
+    attn_implementation: eager
+    disable_gradient_checkpointing: true
+    dtype: bf16
+  generating_args:
+    max_new_tokens: 1024
+    top_p: 0.99
+    top_k: 100
+    num_beams: 1
+    temperature: 0.6
+    num_return_sequences: 1
+  data_args:
+    template: qwen3
+  strategy_args:
+    strategy_name: vllm
+    strategy_config:
+      gpu_memory_utilization: 0.35
+      block_size: 16
+      load_format: auto
+      enforce_eager: true
+  device_mapping: "[0]"   # 1 vLLM worker (pids); NCCL-broadcast weight-sync (see header)
+
+reference:
+  model_args:
+    attn_implementation: eager
+    disable_gradient_checkpointing: true
+    dtype: bf16
+    model_type: ~
+  data_args:
+    template: qwen3
+  strategy_args:
+    strategy_name: hf_infer
+    strategy_config: ~
+  device_mapping: "[1]"   # frozen KL reference, 1 worker (pids)
+  infer_batch_size: 2
+
+enable_response_mask: True
+action_sep: "||"
+use_turn_scores: True
+enable_think: True
+max_actions_per_traj: 20
+reward_normalization:
+  grouping: tags
+  method: mean
+  separate_norm_for_selfplay: true
+whiten_rewards: true
+advantage_norm: mean
+pg_clip_high: 0.20
+
+custom_envs:
+  TicTacToe:
+    env_type: tictactoe
+    max_actions_per_traj: ${max_actions_per_traj}
+    grid_vocab: false
+    env_config:
+      built_in_opponent: none
+      render_mode: text
+
+train_env_manager:
+  format_penalty: 0.05
+  max_env_num_per_worker: 8
+  env_groups: 2
+  group_size: 4
+  tags: [TicTacToe]
+  n_groups: [2]
+
+val_env_manager:
+  max_env_num_per_worker: 8
+  env_groups: 2
+  group_size: 1
+  tags: [TicTacToe]
+  n_groups: [2]

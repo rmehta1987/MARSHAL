@@ -20,7 +20,11 @@ repro, NOT eval, NOT hyperparameter tuning.
 
 ---
 
-## ▶ STATUS: GREEN ✅ (2026-06-06) — bring-up complete
+## STATUS (2026-06-12): deepspeed smoke bring-up complete (GREEN, 2026-06-06); megatron scale-up in progress
+
+The 0.5B deepspeed smoke is complete and reproducible (see below). The megatron
+scale-up (Qwen3-4B, `megatron_train` TP=4) is the current work item — see the
+**"Megatron scale-up"** section and the **job ledger** further down.
 
 The MARSHAL tictactoe self-play smoke ran end-to-end on Polaris (jid **7186746**): 3 DeepSpeed
 REINFORCE steps → `pipeline complete!` → 12 G `checkpoint-2` + TensorBoard, `Training exited with
@@ -48,9 +52,9 @@ qsub -v MARSHAL_VENV_TARBALL=/lus/eagle/projects/lighthouse-uchicago/members/meh
 | Item | Value |
 |---|---|
 | Scheduler | **PBS Pro** (`qsub`/`qstat`/`qdel`), login host `polaris-login-02` |
-| Account (`-A`) | **`lighthouse-uchicago`** ⚠️ NOT "Uchicago-lighthouse" — confirmed via `sbank-list-allocations` (alloc 12374, ~17,184 node-h available) |
+| Account (`-A`) | **`lighthouse-uchicago`** — NOT "Uchicago-lighthouse" (PBS rejects it); confirmed via `sbank-list-allocations` (alloc 12374, ~17,184 node-h available) |
 | Queue | `debug` (1–2 nodes, ≤1 h walltime) — used for the smoke. Also `debug-scaling` (1–10 nodes, 1 job/user), `prod` (routing, ≥10 nodes, 24 h) |
-| GPU | 4× NVIDIA **A100 40 GiB** (HBM2, sm_80) per node. ⚠️ far tighter than Midway's H200 (~140 GiB) |
+| GPU | 4× NVIDIA **A100 40 GiB** (HBM2, sm_80) per node — far tighter than Midway's H200 (~140 GiB); re-confirmed on-node 2026-06-12 (decrypto job 7197265); there is no 80 GB partition |
 | CPU / RAM | AMD EPYC Milan 7543P, 32c/64t (`ncpus=64`), 512 GiB DDR4 |
 | Node-local scratch | pair of 1.6 TB SSDs in RAID0 (used for `TMPDIR`; mount assumed `/local/scratch`, wrap falls back to `/tmp`) |
 | Native CUDA | **12.4.1** (`/soft/compilers/cudatoolkit/cuda-12.4.1`, ALCF's PyTorch is built against it). Base conda ships torch 2.8.0 (cu128) → driver supports ≥ CUDA 12.8, so our cu124 wheels are safe |
@@ -127,7 +131,7 @@ pip install torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0
 
 # 2) the consistent inference/RL trio (joint resolve)
 pip install vllm==0.8.4 ray==2.46.0 deepspeed==0.16.4
-#    ⚠️ this pulled bleeding-2026 transformers 5.10.2 / tokenizers 0.22 / hub 1.17 / numpy 2.2 —
+#    CAUTION: this pulled bleeding-2026 transformers 5.10.2 / tokenizers 0.22 / hub 1.17 / numpy 2.2 —
 #    exactly the Midway "transformers must be <5" hazard.
 
 # 3) pin ROLL's tested versions + smoke extras (downgrades the above)
@@ -195,21 +199,22 @@ bundled cu124 libs must win at runtime.)
 
 ## Validation ladder
 
-1. **Toolchain probe (login-node equivalent of the handoff's probe job).** ✅
-   The venv imports the full stack and the ROLL agentic pipeline; hydra
-   `compose()` + `from_dict(AgenticConfig, …)` resolves and schema-validates the
-   smoke config. (No separate `probe_container_polaris.pbs` is needed on the
-   native path — there's no container to test; `nvidia-smi`/GPU torch are
-   exercised by the smoke job's own preamble.)
-2. **Smoke (deepspeed, Qwen2.5-0.5B, 3 steps).** ⏳ **IN PROGRESS** — attempt 1
-   (job 7185571) hung on a bad node (zero cput, unkillable D-state — see the
-   decisions log); hardened the wrap for observability and resubmitted as
-   **job 7185610**. Result recorded below once it lands.
-3. **Scale / megatron.** Not started (optional).
+1. **Toolchain probe (login-node equivalent of the handoff's probe job).**
+   Successful. The venv imports the full stack and the ROLL agentic pipeline;
+   hydra `compose()` + `from_dict(AgenticConfig, …)` resolves and
+   schema-validates the smoke config. (No separate `probe_container_polaris.pbs`
+   is needed on the native path — there's no container to test; `nvidia-smi`/GPU
+   torch are exercised by the smoke job's own preamble.)
+2. **Smoke (deepspeed, Qwen2.5-0.5B, 3 steps).** Successful — job 7186746,
+   2026-06-06, after the 10-layer fix stack chronicled in the decisions log.
+   See "GREEN — MARSHAL smoke test" below.
+3. **Scale / megatron (Qwen3-4B, `megatron_train` TP=4).** In progress
+   (2026-06-12) — see the "Megatron scale-up" section below for the toolchain
+   extension, placement engineering, and its own validation ladder.
 
 ---
 
-## GREEN — MARSHAL smoke test (deepspeed) ✅ 2026-06-06
+## GREEN — MARSHAL smoke test (deepspeed) — Successful, 2026-06-06
 
 **The MARSHAL tictactoe self-play training loop closed end-to-end on ALCF Polaris.**
 
@@ -632,3 +637,327 @@ qsub -v MARSHAL_VENV_TARBALL=/lus/eagle/projects/lighthouse-uchicago/members/meh
   startup actors (better odds vs pids.max=4096) and removes the step-0 val crash. The training
   rollout (which DOES run every step) + model_update (proven) should now reach the 3 steps + checkpoint.
   * Resubmitted as jid **7186746** — distinct GPUs + val disabled.
+
+---
+
+# Megatron scale-up (Qwen3-4B, `megatron_train` TP=4) — started 2026-06-12
+
+Goal: reproduce on Polaris the configuration Midway proved GREEN (jid 50261211):
+Qwen3-4B, `actor_train: megatron_train` with TP=4 + sequence_parallel +
+distributed optimizer + recompute=full, vLLM rollouts, 3 steps — then a 20-step
+proof run (the analog of Midway's GREEN scale-up, jid 50259767). Authored per
+`polaris_megatron_handoff_prompt.md`.
+
+## Cluster facts — additions and re-verifications (2026-06-12)
+
+| Item | Value | Evidence |
+|---|---|---|
+| Queue `debug` | 1–2 nodes, walltime 5 min–1 h, **1 running job/user** | `qstat -Qf debug`, 2026-06-12 |
+| Queue `debug-scaling` | 1–10 nodes, walltime 5 min–**1 h** (same cap as debug, just wider) | `qstat -Qf debug-scaling`, 2026-06-12 |
+| Queue `preemptable` | 1–10 nodes, walltime up to **72 h**, `max_run=[p:PBS_GENERIC=10]`, preemptible (`-r y`) | `qstat -Qf preemptable`, 2026-06-12 |
+| **Login-node per-user cgroup** | `memory.max = 8 GiB`, `pids.max = 256` (`/sys/fs/cgroup/users/<user>/`) | discovered 2026-06-12 when a MAX_JOBS=16 build was OOM-killed; governs all login-node builds |
+| cuDNN | modules `cudnn/8.9.7 … 9.13.0` exist under `/soft/modulefiles`; **not needed** — the venv's `nvidia-cudnn-cu12 9.1.0.70` (torch dependency) ships headers + libs | `module avail cudnn`; `site-packages/nvidia/cudnn/{include,lib}` |
+| Qwen3-4B geometry | 32 attention heads, **8 KV heads**, 36 layers, hidden 2560, head_dim 128 → TP=4 and TP=2 both divide; KV cache ~144 KB/token | `$BASE/models/Qwen3-4B/config.json` (read 2026-06-12) |
+| eagle free space | ~1.1 TB free (90% used) at scale-up start | `df -h /lus/eagle`, 2026-06-12 |
+| torch C++ ABI | `torch._C._GLIBCXX_USE_CXX11_ABI = False` → flash-attn wheel must be `cxx11abiFALSE` | venv python, 2026-06-12 |
+
+## Toolchain extension — megatron stack into `marshal-train` (login node, 2026-06-12)
+
+Version targets are the **container-verified set** from `midway_notes.md`
+(megatron.core 0.12.3, mcore_adapter 0.6.0.dev0, transformer_engine 2.2.0,
+flash_attn 2.7.2, apex@25.04). The Dockerfile's `megatron-core==0.11.0` pin is
+a known discrepancy; `mcore_adapter/requirements.txt` pins
+`megatron-core>=0.12.0,<0.13.0`, so 0.12.3 is the consistent choice.
+
+Steps actually run (each followed by a pin-guard re-verification of
+torch 2.6.0+cu124 / vllm 0.8.4 / ray 2.46.0 / deepspeed 0.16.4 /
+transformers 4.51.2 / tokenizers 0.21.4 / numpy 1.26.4):
+
+- **flash-attn 2.7.2.post1** — prebuilt wheel
+  `flash_attn-2.7.2.post1+cu12torch2.6cxx11abiFALSE-cp312-cp312-linux_x86_64.whl`
+  from the GitHub release (cp312 variant of the Dockerfile's cp310 wheel; ABI
+  flag matched against the venv's `False`). Installed `--no-deps`. Successful.
+- **megatron-core 0.12.3** — first attempt (`pip install megatron-core==0.12.3`)
+  was **Unsuccessful and destructive**: pip's resolver dragged in torch 2.12.0,
+  numpy 2.4.6, triton 3.7, setuptools 81 and a set of cu13 NVIDIA packages.
+  Recovery had a second-order trap: the cu13 packages install into the *same*
+  `site-packages/nvidia/<lib>/` paths as torch's cu12 dependencies, so
+  uninstalling them deleted cu12 files and broke `import torch`
+  (`libcudnn.so.9: cannot open shared object file`). Resolution:
+  `pip install --force-reinstall torch==2.6.0 torchvision==0.21.0
+  torchaudio==2.6.0 "numpy<2.0"` to relay the clobbered cu12 payloads, then
+  `pip install --no-deps megatron-core==0.12.3` (its real deps — torch, numpy,
+  packaging — were already satisfied). Regression check (full ROLL agentic
+  import surface + flash_attn) passed afterwards. Lesson: **install
+  megatron-stack packages `--no-deps` where the dep tree is already pinned.**
+- **transformer-engine 2.2.0** — `pip install -v --no-build-isolation
+  "transformer-engine[pytorch]==2.2.0"` with `CUDA_HOME=cuda-12.4.1`,
+  `CC=gcc-12`, `CUDNN_PATH=$VENV/.../nvidia/cudnn`, `CUDAARCHS=80`.
+  `transformer_engine` + `transformer_engine_cu12` arrive as prebuilt manylinux
+  wheels; only `transformer_engine_torch` (26 C++ files, no nvcc) compiles
+  locally. First attempt at `MAX_JOBS=16` was **Unsuccessful** — cc1plus
+  OOM-killed by the login node's 8 GiB user cgroup (`g++-12: fatal error:
+  Killed signal terminated program cc1plus`). Retried at `MAX_JOBS=2`:
+  Successful (~25 min; import-time findings in the decisions log).
+- **apex (NVIDIA, tag 25.04)** — mirror of the Dockerfile invocation: source
+  tree cloned to `$BASE/tmp/apex-25.04`, then `pip install -v --no-cache-dir
+  --no-build-isolation --config-settings "--build-option=--cpp_ext --cuda_ext
+  --parallel 2" $BASE/tmp/apex-25.04` with `MAX_JOBS=2` (login-node 8 GiB user
+  cgroup again), `TORCH_CUDA_ARCH_LIST=8.0` (sm_80 only), `CC=gcc-12`,
+  nvcc 12.4.131. Compiled ~25 min; produced the full `--cuda_ext` surface
+  (`amp_C`, `fused_layer_norm_cuda`, the four megatron fused-softmax
+  extensions, `fused_rotary_positional_embedding`,
+  `fused_weight_gradient_mlp_cuda`, `syncbn`, `mlp_cuda`, ...). All CUDA
+  extensions import cleanly on the login node (linkage proof; first execution
+  is rung 2). Build log: `$BASE/tmp/apex_build.log`. Successful.
+- **mcore_adapter 0.6.0.dev0** — `pip install --no-deps --no-build-isolation
+  ./mcore_adapter` (its three declared deps were already satisfied:
+  `megatron-core>=0.12,<0.13` by 0.12.3, `transformers>=4.48` by 4.51.2,
+  `accelerate>=0.27.2` by 0.34.2). Two follow-on findings:
+  * **`pkg_resources` regression.** `mcore_adapter/.../convert_utils.py:9`
+    does `from pkg_resources import packaging`; the megatron-core resolver
+    incident (above) had left `setuptools 82.0.1`, which no longer ships
+    `pkg_resources` (removed in setuptools 81) → `import mcore_adapter` died
+    with `ModuleNotFoundError: pkg_resources`. Resolution:
+    `pip install setuptools==75.8.2` (last-era setuptools that ships
+    pkg_resources; matches what the Midway container ran). Chose the
+    setuptools downgrade over patching the vendored mcore_adapter source so
+    the package stays byte-identical to the Midway-proven one.
+  * **megatron-core's missing declared deps**, surfaced by `pip check` after
+    the `--no-deps` install: installed `zarr 2.18.7` (+ numcodecs 0.15.1) and
+    `tensorstore 0.1.84` (+ ml_dtypes 0.5.4) — these back
+    `megatron.core.dist_checkpointing`, which mcore_adapter's
+    trainer/checkpointing actually use (optimizer state goes through
+    `dist_checkpointing.save`), and compute nodes are air-gapped so a lazy
+    import miss there would cost a debug job. Deliberately did NOT install
+    the remaining declared deps (pytest / pytest-cov / pytest-random-order,
+    flask-restful, nltk, nvidia-modelopt): grep of the installed
+    `megatron/core` shows zero import sites for nltk/flask/pytest, and
+    modelopt only under `inference/modelopt_support/` + `post_training/` —
+    none on the training path. numpy stayed 1.26.4 throughout. Successful.
+
+## Placement engineering — memory × pids (the core scale-up problem)
+
+Two hard constraints. (1) **Memory:** Qwen3-4B ≈ 4.0 B params (computed from
+config.json geometry: 36 layers × ~101 M + 389 M tied embedding). Megatron
+training state at the Midway config's settings (bf16 weights, fp32 grad
+accumulation, fp32 master weights + Adam moments) ≈ 18 bytes/param ≈ **72 GB**,
+sharded over the TP ranks. (2) **pids:** the job cgroup caps the whole job at
+**`pids.max=4096`** (measured, jid 7186710); measured data points — 3 GPU
+workers passed (with a residual ~50% startup race), 9–12 GPU workers failed
+every time.
+
+| Layout | actor_train | actor_infer | reference | GPU workers | Train state/GPU | Assessment (pre-run) |
+|---|---|---|---|---|---|---|
+| A. Midway mirror | TP=4 `"[0,1,2,3]"` | `"[0,1,2,3]"` | `"[0,1,2,3]"` | 12 | ~18 GB | Rejected: 12 workers is the measured-fail pids shape |
+| **B. TP=4 + single-GPU infer/ref** | TP=4 `"[0,1,2,3]"` | `"[0]"` | `"[1]"` | 6 | ~18 GB | **Primary candidate.** Memory: GPU0 worst case ≈ 18 (train shard) + 14 (vLLM at util 0.35) + contexts ≈ 34 GB < 40 even with no offload; GPU1 ≈ 18 + 8 (ref) ≈ 27 GB. pids: 6 workers sits between the 3-pass and 9/12-fail data points — to be measured (census in the wrap) |
+| C. TP=2 distinct GPUs | TP=2 `"[0,1]"` | `"[2]"` | `"[3]"` | 4 | ~36 GB | Fallback only: ~36 GB/rank leaves no activation headroom on a 40 GB card; would need heavy memory dials |
+
+Supporting analysis (code-verified 2026-06-12, before any run):
+
+- **Weight-sync path.** `roll/distributed/executor/model_update_group.py:make_comm_plan`
+  assigns each tgt device a src rank, *skipping* a src rank whose (node, gpu)
+  collides with the tgt; P2P is only used when there is a single src rank (the
+  smoke's 1-GPU case). With 4 distinct TP src ranks, layout B gets a pure
+  **NCCL-broadcast bucket path**: `megatron_strategy.model_update` all-gathers
+  HF-format buckets (256 MB) across TP and `collective.broadcast`s them;
+  under vLLM V1 only bucket *metadata* is msgpack'd
+  (`SendBucketManager.meta_to_dict`), never the tensor. The receiving side
+  (`roll/third_party/vllm/worker_helper.py`) uses ROLL's own
+  `roll.utils.send_recv_utils.RecvBucketManager` — megatron-free. The
+  mcore_adapter `RecvBucketManager` import in `vllm_strategy.py` is
+  driver-side; with the real package installed the stub's `try` path imports
+  the real module and the stub is dormant (kept for the deepspeed-only smoke).
+- **vLLM memory dial.** Qwen3-4B KV ≈ 144 KB/token (36 layers × 2 × 8 KV-heads
+  × 128 × 2 B). `gpu_memory_utilization: 0.35` → 14 GB = 8 GB bf16 weights +
+  ~5.7 GB KV ≈ 40 k tokens — ample for 16 tictactoe trajectories at
+  `max_new_tokens: 1024`. (The Midway 0.6 was sized for 140 GB H200s.)
+- **vLLM offload.** ROLL's `VllmStrategy.offload_states` calls vLLM 0.8.4
+  sleep mode (`enable_sleep_mode=True`, default `sleep_level=1` — KV cache
+  freed, weights kept). Layout B's worst case above assumes **no** offload and
+  still fits; offload is upside, not a dependency.
+- **`use_distributed_optimizer` with DP=1**: there are no extra DP ranks to
+  shard optimizer state over, so its savings are likely nil here — the 18
+  bytes/param estimate deliberately does not credit it.
+
+## ALCF ticket — raise the per-job cgroup `pids.max` (DRAFT, to be filed)
+
+The durable fix for the whole pids class (including the smoke's residual ~50%
+startup race). This session cannot send email/tickets; **the user should file
+this with ALCF support (support@alcf.anl.gov / the ALCF help desk portal)**:
+
+> **Subject:** Request: raise per-job cgroup pids.max on Polaris GPU nodes
+> (currently 4096)
+>
+> **Project:** lighthouse-uchicago (allocation 12374). **User:** rmehta1987.
+>
+> On Polaris compute nodes, the PBS job cgroup (`/sys/fs/cgroup/jobs/<jobid>`)
+> caps the entire job at `pids.max=4096` threads+processes. We measured this
+> directly (job **7186710**, probe script `scripts/polaris_limits_probe.pbs`
+> in our repo): `pids.max = 4096`, and a live clone test failed after 4093
+> threads ("can't start new thread"). The parent cgroup `/jobs` is
+> `pids.max=max` and the setting is root-owned, so it cannot be raised from
+> inside a job.
+>
+> Our workload is a multi-role RL training pipeline (Ray + vLLM + DeepSpeed /
+> Megatron-Core: one training actor group, one vLLM rollout engine, one
+> reference-model worker, plus environment actors). Each GPU worker process
+> legitimately spawns hundreds of threads (NCCL, gRPC, CUDA, ray core) that
+> per-process knobs like OMP_NUM_THREADS do not govern. At 4096 we can only
+> run severely shrunken layouts (3–6 GPU workers), and even those lose ~50% of
+> submissions to an EAGAIN race during the startup import storm (e.g. jobs
+> 7186716/7186717/7186727 died at actor construction with "Resource
+> temporarily unavailable" despite OMP/OPENBLAS=1, RAY_NUM_CPUS=16).
+>
+> Request: raise the per-job `pids.max` on GPU nodes (e.g. to 16384, or make
+> it scale with ncpus), or advise on a supported mechanism to request a higher
+> limit per job.
+
+Status: drafted 2026-06-12, not yet filed (flagged to the user). Layout
+engineering proceeds in parallel per the plan above.
+
+## Scale-up validation ladder
+
+1. **[login] Toolchain extension proven offline** — megatron-stack imports +
+   proven-stack regression + hydra compose of the new config; new tarball
+   packed under a new name; old tarball intact. Status: **Successful**
+   (2026-06-12; pin guard 12/12, stub dormant, compose dry-run clean,
+   `marshal-train-megatron-venv.tar` packed alongside the untouched GREEN
+   fallback — details in the decisions log).
+2. **[debug] On-GPU toolchain probe** — new tarball staged; megatron stack
+   imports on-node; minimal flash-attn forward on the A100. Status: not started.
+3. **[debug] Megatron 3-step smoke** at layout B. Status: not started.
+4. **[debug or preemptable] 20-step proof run.** Status: not started.
+
+## Job ledger — every Polaris log file, its job, and its outcome
+
+`logs/` also contains `pull_*`/`train_midway_*` files; those belong to
+`midway_notes.md`'s ledger. PBS spool files are abbreviated `<jid>.OU/.ER`
+(full names `logs/<jid>.polaris-pbs-01.….OU/.ER`). Jobs 7185571, 7185659,
+7185664, 7185695 have no `wrap_*.log`: 7185571 predates the live tee; for the
+other three the job script never ran (PBS prologue hang), which is itself the
+finding. `nvidia-smi_<jid>.txt` exists for every job from 7185629 on that
+reached the wrap's probe phase.
+
+| Log file(s) | Job id | Queue | What ran | Outcome | Root cause / note |
+|---|---|---|---|---|---|
+| `logs/7185571.*.OU/.ER` (no wrap log — predates the live tee) | 7185571 | debug | smoke attempt 1 (0.5B deepspeed) | Unsuccessful | Bad node `x3004c0s25b0n0`: wedged in early wrap setup, zero cput, D-state, unkillable via qdel; burned walltime |
+| `logs/wrap_7185610.log`, `logs/7185610.*.OU/.ER` | 7185610 | debug | smoke attempt 2 + hardened wrap (live tee, phase markers) | Unsuccessful | Different node `x3101c0s37b1n0` hung at `nvidia-smi` (unkillable D-state, `timeout` did not rescue); `resources_used.ngpus 0`; walltime kill `Exit_status -29` |
+| `logs/wrap_7185629.log`, `logs/nvidia-smi_7185629.txt`, `logs/7185629.*.OU/.ER` | 7185629 | debug | smoke attempt 3 (backgrounded nvidia-smi + torch fail-fast probe) | Unsuccessful | GPUs proven healthy (4 idle A100, ECC clean) but the torch CUDA probe produced no output and fail-fast fired (exit 42 at 33 min); probe was block-buffered so the blocking call was unidentifiable |
+| `logs/wrap_7185641.log`, `logs/nvidia-smi_7185641.txt`, `logs/7185641.*.OU/.ER` | 7185641 | debug | smoke attempt 4 | Unsuccessful | Wasted run: inline probe had a bash-quoting SyntaxError (rc=1 instantly). Fix became `scripts/polaris_gpu_probe.py` (granular, unbuffered) |
+| `logs/wrap_7185650.log`, `logs/nvidia-smi_7185650.txt`, `logs/7185650.*.OU/.ER` | 7185650 | debug | smoke attempt 5 (granular probe) | Unsuccessful | Definitive isolation: `import torch` itself hung >300 s on the compute node (47 s on login). Root cause measured later: eagle small-file latency (71,700 venv files = 1137 s vs one 988 MB file = 3 s) |
+| `logs/7185659.*.OU/.ER` (no wrap log) | 7185659 | debug | venv-on-/home comparison run | Unsuccessful | Job script never executed — PBS prologue hang on bad node `x3016c0s13b1n0`; full hour, 0-byte output |
+| `logs/7185664.*.OU/.ER` (no wrap log) | 7185664 | debug | first tarball→SSD staging run | Unsuccessful | Same bad node `x3016c0s13b1n0`, same prologue hang; the tarball fix went untested |
+| `logs/7185695.*.OU/.ER` (no wrap log) | 7185695 | debug | tarball→SSD retry | Unsuccessful | Different node `x3101c0s37b0n0`, same script-never-ran signature → diagnosed cluster-wide prologue/Lustre outage (`pbsnodes -l`: many nodes offlined on mount failures). Stopped resubmitting until it cleared |
+| `logs/wrap_7186697.log`, `logs/nvidia-smi_7186697.txt`, `logs/7186697.*.OU/.ER` | 7186697 | debug | tarball→SSD staging, first run after outage | Unsuccessful overall, but proved the staging fix (8.4 G extracted in 12 s; `import torch` 1.5 s; `CUDA COMPUTE OK`) | Died in worker construction: ROLL `get_node_ip()` dials `8.8.8.8:80`; Polaris compute is air-gapped → `OSError: Network is unreachable`. Fixed via `ray.util.get_node_ip_address()` in `worker.py` |
+| `logs/wrap_7186701.log`, `logs/nvidia-smi_7186701.txt`, `logs/7186701.*.OU/.ER` | 7186701 | debug | smoke + IP fix | Unsuccessful | All 9 workers constructed; `reference-0` died: OpenBLAS `pthread_create failed ... Resource temporarily unavailable` — 9 procs × 64 BLAS + 64 OMP threads vs the job cgroup thread cap. Fix: thread caps exported before python |
+| `logs/wrap_7186704.log`, `logs/nvidia-smi_7186704.txt`, `logs/7186704.*.OU/.ER` | 7186704 | debug | smoke + OMP/BLAS=4 caps | Unsuccessful | Caps took effect but EAGAIN persisted; fused_adam JIT died (`cc1plus: vfork: Resource temporarily unavailable`); ~190 Ray procs from env fan-out (env_groups=16). Fixes: env_groups→2, persistent TORCH_EXTENSIONS_DIR |
+| `logs/wrap_7186707.log`, `logs/nvidia-smi_7186707.txt`, `logs/7186707.*.OU/.ER` | 7186707 | debug | smoke + env_groups=2 | Unsuccessful | Same EAGAIN at `RolloutScheduler.__init__` → stopped guessing, built the limits probe |
+| `logs/limits_probe.out` | 7186710 | debug | cgroup limits probe (`scripts/polaris_limits_probe.pbs`) | Successful | Measured the governing constraint: **`pids.max=4096`** for the whole job (cpu.max=60 cores, memory.max=512 GiB); live clone test failed at 4093 threads. RLIMIT_NPROC (~2 M) confirmed a red herring |
+| `logs/wrap_7186711.log`, `logs/nvidia-smi_7186711.txt`, `logs/7186711.*.OU/.ER` | 7186711 | debug | smoke at 1 GPU (3 roles colocated) | Unsuccessful | Cleared ALL infra (fused_adam built+cached, ZeRO-2 init, vLLM loaded); died at first `model_update`: vLLM V1 msgpack cannot serialize a CUDA tensor (per-parameter P2P path) |
+| `logs/wrap_7186716.log`, `logs/nvidia-smi_7186716.txt`, `logs/7186716.*.OU/.ER` | 7186716 | debug | 1 GPU + `VLLM_USE_V1=0` | Unsuccessful | Died EARLIER than the V1 run (RolloutScheduler EAGAIN): V0 spawns more startup threads than V1 — forcing V0 was counterproductive |
+| `logs/wrap_7186717.log`, `logs/nvidia-smi_7186717.txt`, `logs/7186717.*.OU/.ER` | 7186717 | debug | 1 GPU + V0 + RAY_NUM_CPUS=16 + BLAS=1 | Unsuccessful | Knobs verified applied (`--num-cpus=16`, OMP=1) yet still startup EAGAIN under V0 → keep V1, fix serialization instead |
+| `logs/wrap_7186720.log`, `logs/nvidia-smi_7186720.txt`, `logs/7186720.*.OU/.ER` | 7186720 | debug | 1 GPU + V1 + `.cpu()` patch in `llm.py:update_parameter` | Unsuccessful | Error advanced: "can't convert cuda:0 tensor" → "Got unsupported ScalarType BFloat16" (numpy has no bf16) — mechanism right, patch incomplete |
+| `logs/wrap_7186727.log`, `logs/nvidia-smi_7186727.txt`, `logs/7186727.*.OU/.ER` | 7186727 | debug | 1 GPU + V1 + `.cpu().float()` patch | Unsuccessful | Lost the startup EAGAIN race (hung; qdel + resubmit as 7186732) |
+| `logs/wrap_7186732.log`, `logs/nvidia-smi_7186732.txt`, `logs/7186732.*.OU/.ER` | 7186732 | debug | same as 7186727, resubmitted | Unsuccessful | Patch cleared cuda+bf16 layers; third layer: receiver got a raw list (`'list' object has no attribute 'shape'`) — vLLM 0.8.4 V1 decoder only reconstructs type-hinted tensors. Conclusion: per-parameter V1 path is unserializable → route via NCCL broadcast (distinct GPUs) |
+| `logs/wrap_7186739.log`, `logs/nvidia-smi_7186739.txt`, `logs/7186739.*.OU/.ER` | 7186739 | debug | roles on distinct GPUs, first try | Unsuccessful | Config parse error: `device_mapping` was a YAML list; ROLL `eval()`s it — must be a string (`"[0]"`) |
+| `logs/wrap_7186742.log`, `logs/nvidia-smi_7186742.txt`, `logs/7186742.*.OU/.ER` | 7186742 | debug | distinct GPUs, strings fixed | Unsuccessful overall, but the BREAKTHROUGH run | `weight update progress: 100%` over NCCL broadcast (V1 serialization problem gone). Died in the step-0 *validation* cascade: the val RequestScheduler had been killed by the startup EAGAIN race; hung 45 min until qdel. Fix: skip val scheduler when `eval_steps > max_steps` |
+| `logs/wrap_7186746.log`, `logs/nvidia-smi_7186746.txt`, `logs/7186746.*.OU/.ER`, `results/tictactoe_selfplay_polaris_smoke/7186746_*/logs/custom_logs.log` | 7186746 | debug | 0.5B deepspeed smoke, roles on GPUs 0/1/2, val disabled | **Successful — the GREEN bring-up** | 3 steps, `pipeline complete!`, 12 G `checkpoint-2`, TensorBoard events, `Training exited with code: 0` |
+
+## Decisions / changes log — megatron scale-up
+
+- **2026-06-12 — Orientation + plan.** Read the proven artifacts (notes, guide,
+  Midway megatron trio, Polaris smoke trio, mcore_adapter, Dockerfile);
+  re-verified queue limits via `qstat -Qf` (debug-scaling caps at 1 h — same as
+  debug; preemptable is the >1 h option); confirmed Qwen3-4B geometry from
+  config.json (32/8 heads); code-verified the weight-sync path (NCCL bucket
+  broadcast, no P2P with 4 TP src ranks — see Placement engineering). Decided
+  layout B as primary. Drafted the ALCF pids.max ticket (above).
+- **2026-06-12 — Venv extension started.** flash-attn 2.7.2.post1 cp312 wheel
+  installed; megatron-core 0.12.3 installed after the pip-resolver incident
+  (torch 2.12/cu13 clobber — see Toolchain extension; recovered, regression
+  green); transformer-engine 2.2.0 building (first build OOM-killed by the
+  login node's 8 GiB user cgroup at MAX_JOBS=16; retrying at MAX_JOBS=2).
+  Authored the Polaris megatron trio (`agentic_val_tictactoe_selfplay_polaris_megatron.yaml`,
+  `run_agentic_pipeline_tictactoe_selfplay_polaris_megatron.sh`,
+  `scripts/train_polaris_megatron.pbs` — with a pids+GPU-memory census loop
+  baked into the wrap). mcore_adapter will resolve from the venv
+  (pip-installed, in the tarball), not from `mcore_adapter/src` on PYTHONPATH;
+  the repo's `mcore_adapter/` dir cannot shadow it (no `__init__.py` → only a
+  namespace-package candidate, regular packages win).
+- **2026-06-12 — transformer-engine 2.2.0 installed; runtime library-resolution
+  fix found.** The MAX_JOBS=2 rebuild succeeded (~25 min;
+  `transformer_engine/`+`_cu12`/`_torch` all 2.2.0; pins re-verified intact).
+  Two import-time findings, both measured on the login node and folded into the
+  wrap/probe scripts:
+  * `_load_nvrtc()` needs `CUDA_HOME` set (it globs there first; its ldconfig
+    fallback fails where `ldconfig` is not on PATH). All wraps already set
+    `CUDA_HOME=/soft/compilers/cudatoolkit/cuda-12.4.1`.
+  * `libtransformer_engine.so` links `libcudnn_adv.so.9`/`libcublas.so.12`
+    directly; torch preloads the *main* libcudnn/libcublas but not the cuDNN
+    sub-libraries, so `import transformer_engine` fails unless the venv's own
+    `site-packages/nvidia/{cudnn,cublas,cuda_nvrtc,cuda_runtime,nccl}/lib`
+    dirs are on `LD_LIBRARY_PATH`. Added to `train_polaris_megatron.pbs` and
+    `polaris_megatron_probe.pbs` (these are torch's bundled cu124 libs, so the
+    "torch's libs must win at runtime" rule is preserved; the /soft toolkit's
+    lib64 stays OFF the path). With that, `torch + transformer_engine(.pytorch)
+    + flash_attn + megatron.core` all import cleanly on the login node.
+  Also authored `scripts/polaris_megatron_probe.pbs` (validation rung 2: stage
+  new tarball, on-node imports, minimal flash-attn forward, stub-dormancy
+  assert, cgroup pids dump) and validated the new megatron YAML offline (hydra
+  `compose()` + `from_dict(AgenticConfig, ...)`: device_mapping strings eval to
+  `[0,1,2,3]`/`[0]`/`[1]`, megatron strategy_config parses). apex 25.04
+  building (`--cpp_ext --cuda_ext`, MAX_JOBS=2, sm_80 only).
+- **2026-06-12 — apex + mcore_adapter installed; rung 1 (login validation)
+  passed.** The apex build completed after ~25 min (`Successfully installed
+  apex-0.1`; all CUDA extensions import — see Toolchain extension).
+  `mcore_adapter 0.6.0.dev0` installed `--no-deps` from the repo; hit and
+  fixed the **setuptools-82/pkg_resources regression** (downgraded to
+  setuptools 75.8.2 rather than patch vendored source) and backfilled
+  megatron-core's real runtime deps **zarr 2.18.7 + tensorstore 0.1.84**
+  surfaced by `pip check` (dist_checkpointing backend; air-gap insurance) —
+  details in Toolchain extension. Full rung-1 validation then passed in one
+  process on the login node: megatron surface (megatron.core 0.12.3,
+  transformer_engine 2.2.0 + .pytorch, flash_attn 2.7.2.post1, apex + amp_C +
+  fused_layer_norm_cuda, mcore_adapter 0.6.0.dev0 incl.
+  `mcore_adapter.trainer` and the real `RecvBucketManager`), stub dormancy
+  (`vllm_strategy.RecvBucketManager.__module__ ==
+  mcore_adapter.models.converter.convert_utils`),
+  `MegatronTrainStrategy` import, proven-set regression (vllm 0.8.4, ray
+  2.46.0, deepspeed 0.16.4, transformers 4.51.2, tokenizers 0.21.4,
+  numpy 1.26.4, pyspiel, AgenticPipeline), and the hydra `compose()` +
+  `from_dict` dry-run of the new megatron config (layout B confirmed:
+  megatron_train TP=4 on `[0,1,2,3]`, vllm util 0.35 on `[0]`, hf_infer on
+  `[1]`, Qwen3-4B, max_steps 3, env_groups 2). One trap for future login-node
+  validation runs: the **thread caps are required on the login node too** —
+  without `OMP/OPENBLAS/MKL_NUM_THREADS=1`, OpenBLAS tried to spawn 128
+  threads inside the import chain, hit the login cgroup's `pids.max=256`
+  (`pthread_create failed ... Resource temporarily unavailable`) and the
+  process segfaulted in cv2's bootstrap. With caps set, the full surface
+  imports in ~27 s.
+- **2026-06-12 — apex + mcore_adapter installed; RUNG 1 (login-node toolchain)
+  COMPLETE.** apex 25.04 (`e13873d`) built with `--cpp_ext --cuda_ext` at
+  MAX_JOBS=2 / sm_80-only in ~50 min; `amp_C` and `fused_layer_norm_cuda` CUDA
+  extensions import. `pip install --no-deps --no-build-isolation
+  ./mcore_adapter` → 0.6.0.dev0. Full pin guard passed (all 12: torch 2.6.0,
+  vllm 0.8.4, ray 2.46.0, deepspeed 0.16.4, transformers 4.51.2, tokenizers
+  0.21.4, numpy 1.26.4, flash-attn 2.7.2.post1, megatron-core 0.12.3,
+  transformer-engine 2.2.0, apex 0.1, mcore_adapter 0.6.0.dev0). ROLL surfaces:
+  `roll...vllm_strategy` imports with the **real** `RecvBucketManager`
+  (`mcore_adapter.models.converter.convert_utils` — stub dormant, asserted),
+  `roll...megatron_strategy` full import surface OK, agentic pipeline OK.
+  Two further findings while validating:
+  * **The login node has its own pids wall.** Import tests without thread caps
+    intermittently died (one segfault, OpenBLAS `pthread_create failed ...
+    thread N of 64`): the login per-user cgroup is `pids.max=256`, and
+    numpy/OpenBLAS's default 64-thread pool collides with it whenever a couple
+    of processes import concurrently. With `OMP/OPENBLAS/MKL/NUMEXPR=1` the
+    same imports pass deterministically (26 s warm for the whole ROLL+megatron
+    chain). Mirror of the compute-node lesson; export the caps for ANY
+    login-node python that imports numpy.
+  * megatron.core guards its `import transformer_engine` with
+    `except ImportError` only — TE's ldconfig `CalledProcessError` (when
+    CUDA_HOME is unset) escapes the guard and kills the whole import. Another
+    reason CUDA_HOME must always be set (all wraps do).
+  Tarball `marshal-train-megatron-venv.tar` packing from the 9.6 GB venv
+  (was 8.7 GB); `marshal-train-venv.tar` (8.3 GB, GREEN fallback) untouched.

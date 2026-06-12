@@ -1,0 +1,124 @@
+#!/bin/bash
+# Polaris megatron-toolchain ON-GPU probe (validation-ladder rung 2).
+# Stages the NEW megatron venv tarball to node-local SSD, then:
+#   1. runs the standard torch CUDA probe (scripts/polaris_gpu_probe.py),
+#   2. imports the full megatron surface on-node (megatron.core,
+#      transformer_engine, flash_attn, apex, mcore_adapter incl. the real
+#      RecvBucketManager),
+#   3. executes a minimal flash-attn forward on the A100 (login nodes have no
+#      GPU, so this is the first time the new kernels actually run),
+#   4. dumps the job cgroup pids numbers for the ledger.
+# Cheap (~10 min): walltime kept at 30 min.
+#
+#PBS -N marshal-mt-probe
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:ncpus=64:ngpus=4
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:30:00
+#PBS -o /lus/eagle/projects/lighthouse-uchicago/members/mehta5/MARSHAL/logs/
+#PBS -e /lus/eagle/projects/lighthouse-uchicago/members/mehta5/MARSHAL/logs/
+
+PROJECT_ROOT=/lus/eagle/projects/lighthouse-uchicago/members/mehta5/MARSHAL
+BASE=/lus/eagle/projects/lighthouse-uchicago/members/mehta5
+MARSHAL_VENV_TARBALL="${MARSHAL_VENV_TARBALL:-$BASE/marshal-train-megatron-venv.tar}"
+cd "$PROJECT_ROOT"
+mkdir -p "$PROJECT_ROOT/logs"
+
+WRAP_LOG="$PROJECT_ROOT/logs/wrap_${PBS_JOBID%%.*}.log"
+exec > >(stdbuf -oL -eL tee -a "$WRAP_LOG") 2>&1
+
+echo "=== Megatron-toolchain probe: job $PBS_JOBID on $(hostname) at $(date) ==="
+CGROUP_DIR="/sys/fs/cgroup/jobs/${PBS_JOBID%%.*}"
+echo "cgroup pids.max: $(cat $CGROUP_DIR/pids.max 2>/dev/null || echo unknown)"
+
+module use /soft/modulefiles
+module load conda/2025-09-25
+conda activate base
+export CUDA_HOME=/soft/compilers/cudatoolkit/cuda-12.4.1
+export PATH="$CUDA_HOME/bin:$PATH"
+export CC=/usr/bin/gcc-12 CXX=/usr/bin/g++-12
+
+unset TMPDIR
+NODE_SCRATCH=/local/scratch
+[ -d "$NODE_SCRATCH" ] || NODE_SCRATCH=/tmp
+export TMPDIR="$NODE_SCRATCH/${USER}_${PBS_JOBID%%.*}"
+mkdir -p "$TMPDIR"
+
+echo ">>> phase: staging venv tarball -> node-local SSD"
+echo "    tarball: $MARSHAL_VENV_TARBALL ($(du -sh "$MARSHAL_VENV_TARBALL" | cut -f1))"
+LOCAL_VENV="$TMPDIR/marshal-train"
+mkdir -p "$LOCAL_VENV"
+_t0=$SECONDS
+tar xf "$MARSHAL_VENV_TARBALL" -C "$LOCAL_VENV"
+echo "    extracted $(du -sh "$LOCAL_VENV" 2>/dev/null | cut -f1) in $((SECONDS-_t0))s"
+
+export VIRTUAL_ENV="$LOCAL_VENV"
+export PATH="$LOCAL_VENV/bin:$PATH"
+hash -r
+# TE links cuDNN sub-libraries (libcudnn_adv.so.9) directly; torch doesn't
+# preload those, so the venv's nvidia wheel lib dirs must be on LD_LIBRARY_PATH.
+NVLIB="$LOCAL_VENV/lib/python3.12/site-packages/nvidia"
+export LD_LIBRARY_PATH="$NVLIB/cudnn/lib:$NVLIB/cublas/lib:$NVLIB/cuda_nvrtc/lib:$NVLIB/cuda_runtime/lib:$NVLIB/nccl/lib:${LD_LIBRARY_PATH:-}"
+echo "python: $(command -v python) ($(python --version 2>&1))"
+
+( timeout 30 nvidia-smi > "$PROJECT_ROOT/logs/nvidia-smi_${PBS_JOBID%%.*}.txt" 2>&1 & ) || true
+
+export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1
+export TORCH_CUDA_ARCH_LIST=8.0
+
+echo ">>> phase: torch CUDA probe"
+timeout 300 python -u "$PROJECT_ROOT/scripts/polaris_gpu_probe.py"
+rc=$?
+echo ">>> torch probe exit rc=$rc"
+[ $rc -ne 0 ] && { echo "FATAL: torch CUDA probe failed (rc=$rc)"; exit 42; }
+
+echo ">>> phase: megatron-stack import + flash-attn GPU forward"
+timeout 600 python -u - <<'PYEOF'
+import time
+t0 = time.time()
+def t(msg):
+    print(f"  [{time.time()-t0:6.1f}s] {msg}", flush=True)
+
+import torch; t(f"torch {torch.__version__} (cuda {torch.version.cuda})")
+import megatron.core; t(f"megatron.core {megatron.core.__version__}")
+import transformer_engine; t(f"transformer_engine {transformer_engine.__version__}")
+import transformer_engine.pytorch; t("transformer_engine.pytorch")
+import flash_attn; t(f"flash_attn {flash_attn.__version__}")
+import apex; t("apex")
+from apex.normalization import FusedLayerNorm; t("apex.normalization.FusedLayerNorm")
+import amp_C; t("apex amp_C (cuda ext)")
+import fused_layer_norm_cuda; t("apex fused_layer_norm_cuda (cuda ext)")
+import mcore_adapter; t(f"mcore_adapter {mcore_adapter.__version__}")
+from mcore_adapter.models.converter.convert_utils import RecvBucketManager; t("RecvBucketManager (real)")
+
+# Verify the in-repo stub is dormant (real import must win)
+import sys; sys.path.insert(0, "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/MARSHAL")
+import roll.distributed.strategy.vllm_strategy as vs
+real = vs.RecvBucketManager.__module__
+t(f"vllm_strategy.RecvBucketManager module: {real}")
+assert real.startswith("mcore_adapter"), f"stub still active: {real}"
+
+# Minimal flash-attn forward on the A100 (first real kernel execution)
+from flash_attn import flash_attn_func
+q = torch.randn(2, 128, 8, 64, device="cuda", dtype=torch.bfloat16)
+k = torch.randn(2, 128, 8, 64, device="cuda", dtype=torch.bfloat16)
+v = torch.randn(2, 128, 8, 64, device="cuda", dtype=torch.bfloat16)
+out = flash_attn_func(q, k, v, causal=True)
+torch.cuda.synchronize()
+t(f"flash_attn_func forward OK: out {tuple(out.shape)} {out.dtype} on {out.device}")
+
+# TE GEMM-free smoke: a TE LayerNorm forward (exercises the TE torch extension)
+import transformer_engine.pytorch as te
+ln = te.LayerNorm(64).cuda().to(torch.bfloat16)
+y = ln(torch.randn(4, 64, device="cuda", dtype=torch.bfloat16))
+torch.cuda.synchronize()
+t(f"TE LayerNorm forward OK: {tuple(y.shape)}")
+
+print("MEGATRON STACK ON-GPU: ALL OK", flush=True)
+PYEOF
+rc=$?
+echo ">>> megatron-stack probe exit rc=$rc"
+
+echo "cgroup pids.current at end: $(cat $CGROUP_DIR/pids.current 2>/dev/null || echo unknown), pids.peak: $(cat $CGROUP_DIR/pids.peak 2>/dev/null || echo n/a)"
+exit $rc
