@@ -1286,6 +1286,20 @@ discipline vs the proven 20-step config: only `max_steps` 20→400,
   the full megatron state (sharded distributed-optimizer + model + per-rank
   rng + pipeline step/metric history). The run is now training forward from
   step 50 toward 400.
+- **2026-06-13 — save_steps=25 retune working; run 4 (job 7198659 run 4)
+  ratcheting steadily, floor advanced to step 199.** After the retune, run 4
+  banked checkpoints 74, 99, 124, 149, 174, 199 (each verified complete: 4 ×
+  ~2.0 GB `mp_rank` shards + dist_optimizer + pipeline state) and continues
+  training past step 200 of 400 — surviving >1.5 h on this run, the longest
+  contiguous window yet. The 25-step interval reaches a save before the
+  typical preemption window, so progress now ratchets even under load.
+  **Checkpoint hygiene running live** per keep-newest-two-plus-final:
+  superseded saves pruned to a `checkpoint-<N>_listing_proof.txt` (full
+  `ls -laR` + `du`) in each run dir as soon as two newer complete saves
+  exist — pruned so far: 49, 74, 99, 124, 149 (each ~53 G reclaimed);
+  currently retaining 174 + 199. Eagle steady ~9.0–9.1 T of 10 T. The
+  auto-resume scan always selects the highest complete checkpoint, so
+  pruning older ones is safe.
 - **2026-06-13 — Status: all mechanisms proven; remaining obstacle is purely
   queue occupancy.** As of run 3, the technical work is complete and
   verified on the cluster: layout B (memory + pids), the deterministic
