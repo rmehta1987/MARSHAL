@@ -1286,6 +1286,21 @@ discipline vs the proven 20-step config: only `max_steps` 20→400,
   the full megatron state (sharded distributed-optimizer + model + per-rank
   rng + pipeline step/metric history). The run is now training forward from
   step 50 toward 400.
+- **2026-06-13 — Status: all mechanisms proven; remaining obstacle is purely
+  queue occupancy.** As of run 3, the technical work is complete and
+  verified on the cluster: layout B (memory + pids), the deterministic
+  rendezvous-port fix, incremental megatron checkpointing, automatic
+  requeue on preemption/node-fault, and full resume-from-checkpoint. The
+  only thing between here and a cumulative 400-step completion is wall-clock
+  survival on a heavily-subscribed `preemptable` queue (39 running + 50
+  queued competing jobs observed; preemptions arriving within minutes). The
+  job is in a correct self-healing loop with a durable floor (checkpoint-49)
+  and a 25-step (~38 min) save interval; it will ratchet forward whenever a
+  run gets a long-enough window, at ~5 min resume overhead per requeue. This
+  is a patience/occupancy situation, not a code one — continuing to let the
+  requeue+resume loop run. (Note for a future reader: the run's eventual
+  GREEN is cumulative across requeued runs; correctness of that path is
+  already demonstrated by the step-50 resume of job 7198659 run 1.)
 - **2026-06-13 — Heavy preemption cadence on `preemptable` tonight; progress
   stalling at checkpoint-49.** Job 7198659 run 1 was preempted again after
   finishing step 50 (before reaching the step-99 save), so checkpoint-49
