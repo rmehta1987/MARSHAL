@@ -886,6 +886,7 @@ reached the wrap's probe phase.
 | `logs/wrap_7197445.log`, `logs/nvidia-smi_7197445.txt`, `logs/7197445.*.OU/.ER`, `results/tictactoe_selfplay_polaris_smoke/7197445_*/` | 7197445 | debug | 0.5B deepspeed smoke regression from the NEW megatron tarball + RequestScheduler pool patch | Successful | GREEN baseline intact after the env moved: 3/3 steps, `weight update progress: 100%` each step, `pipeline complete!`, `checkpoint-2` written (pruned to listing proof), Exit_status 0, 6m22s — and it won the startup race first try with the pool patch in effect |
 | `logs/wrap_7197546.log`, `logs/pids_census_7197546.csv`, `logs/thread_census_7197546.log`, `logs/nvidia-smi_7197546.txt`, `logs/7197546.*.OU/.ER`, `results/tictactoe_selfplay_polaris_megatron_long/7197546_*/logs/custom_logs.log` | 7197546 | preemptable | Megatron LONG run (400 steps, 12 h walltime, `..._megatron_long.yaml`), attempt 1 | Unsuccessful | NOT the pids race (census peak 2198/4096 — pool patch holding): TCPStore rendezvous-port collision at `setup_collective_group` during the model_update warmup — `RuntimeError: ... port: 49717 ... EADDRINUSE`. The comm-plan dump shows 49717 was allocated to group `model_update_actor_train_2_to_actor_infer_` by `get_free_port()` (bind(0) probe) and was already taken at bind time. Initially read as a ~1-in-6 transient and resubmitted unchanged (7197919); attempt 2 proved it deterministic — see that row. Exited cleanly (code 1, 6m39s). Positives banked: first run on a preemptable node (staging 14 s, probes green, queue wait 3h38m), auto-resume scan correctly chose fresh start |
 | `logs/wrap_7197919.log`, `logs/pids_census_7197919.csv`, `logs/thread_census_7197919.log`, `logs/nvidia-smi_7197919.txt`, `logs/7197919.*.OU/.ER`, `results/tictactoe_selfplay_polaris_megatron_long/7197919_*/logs/custom_logs.log` | 7197919 | preemptable | Megatron LONG run, attempt 2 (unchanged resubmit — single-variable race test) | Unsuccessful, but converted the diagnosis from transient to deterministic | EADDRINUSE on the **same port 49717**, on a DIFFERENT node (`x3209c0s13b0n0` vs `x3209c0s37b1n0`) and a DIFFERENT victim: `reference-0`'s cluster dist-init master port (registered in SharedStorage as `10.201.4.62:49717`) — the pipeline died before any comm plan was built. Two independent bind(0) probes returning the identical port across nodes/runs is not chance: the kernel ephemeral allocator's search is deterministic given near-identical node/socket state, so multiple processes of the same job are handed the same "free" port and the second binder dies. ROLL's SharedStorage port registry cannot help — it dedups only registered cluster-master ports, and `model_update_group.py:120` bypasses it. Fix: re-ranged `Worker.get_free_port()` (see decisions log). Exited cleanly (code 1, 6m16s; pids peak 2166/4096; queue wait 2h04m) |
+| `logs/wrap_7198332.log` (4 runs, banner-delimited), `logs/pids_census_7198332.csv`, `logs/thread_census_7198332.log`, `logs/nvidia-smi_7198332.txt`, `logs/7198332.*.OU/.ER`, `results/tictactoe_selfplay_polaris_megatron_long/7198332_*/` (4 run dirs) | 7198332 | preemptable | Megatron LONG run, attempt 3 (port patch live) — 4 runs under `-r y` | Unsuccessful overall (Exit_status 1, run_count 4), but proved the port patch, banked checkpoint-49, and exercised the first live resume to within one dotfile of working | Run 1 (`x3212c0s7b0n0`, 21:26–21:28): killed ~2 min into the pipeline by ALCF node trouble — the node entered `EXECJOB_END ... processes failed to terminate, cleaning` (stale process from another user's June-4 job 7185375); PBS requeued automatically. Run 2 (`x3210c0s31b0n0`, 21:33–~21:41): **port patch proven** — all 8 rendezvous ports in 20000–32000 (cluster masters 21944/27680/27833/28129; comm-plan groups 24301/24803/25030/27794), dist-init + comm-group warmup + first weight sync all passed; preempted mid-first-rollout (4/16 trajectories; no node fault → genuine preemption). Run 3 (`x3212c0s31b0n0`, 21:47–~23:20): trained steps 0–64; **`checkpoint-49` written mid-run and verified complete** (4 × 14 G `mp_rank` shards of 2,011,703,942 B + dist_optimizer + pipeline state); preempted — loss capped at 15 steps by save_steps=50, as designed. Run 4 (`x3210c0s31b1n0`, 00:00–00:05): **first live auto-resume** — the wrap detected step 49, assembled `resume-checkpoint-49`, the driver + all 4 TP ranks loaded the resume path and megatron began the dist-optimizer load, then `FileNotFoundError: .../dist_optimizer/.metadata` — the assembly globs lacked `dotglob` (rank-0-only dotfile; `simlink_resume_dir.sh` sets it, the wrap adaptation had dropped it). Script failures do not requeue under `-r y` → job finished. Fixed (commit 59087bf), validated by running the wrap's assembly block verbatim against the real checkpoint-49 (`.metadata` present, pipeline step=49), resubmitted as 7198659 |
 
 ## Decisions / changes log — megatron scale-up
 
@@ -1243,3 +1244,29 @@ discipline vs the proven 20-step config: only `max_steps` 20→400,
   sequences; a held port is never returned. Residual risk: two concurrent
   probes drawing the same number in the same instant (~0.5%/run birthday
   bound across ~12 ports) — accepted. Resubmitted as job **7198332**.
+- **2026-06-12/13 — Attempt 3 (job 7198332): four runs under `-r y` — port
+  patch proven, checkpoint-49 banked, preemption requeue exercised twice,
+  and the first live resume found one last bug.** Full run-by-run record in
+  the ledger row. Findings: (a) the **port patch works live** — all 8
+  rendezvous ports in 20000–32000, startup cleared dist-init, comm-group
+  warmup, and the first weight sync (the failure points of attempts 1–2);
+  (b) **preemption + automatic requeue behave as designed** on this queue —
+  two genuine preemptions, each requeued without intervention; (c)
+  **incremental saving + loss capping works** — checkpoint-49 (53 G,
+  verified complete) capped run 3's preemption loss at 15 steps; (d) the
+  **auto-resume assembly had a dotfile bug**: megatron `dist_checkpointing`
+  reads `iter_0000001/dist_optimizer/.metadata` (written by TP rank 0 only)
+  and plain bash globs skip dotfiles — `FileNotFoundError` at the optimizer
+  load. The original `simlink_resume_dir.sh` sets `shopt -s dotglob` (its
+  line 36); the wrap adaptation had dropped it. Note: a script *failure*
+  does not requeue under `-r y` (only preemption/node failure does), so the
+  job finished with Exit_status 1.
+- **2026-06-13 — dotglob fix committed (59087bf); attempt 4 submitted as
+  job 7198659.** Validation before submission: the wrap's auto-resume block
+  was extracted and executed VERBATIM on the login node against the real
+  checkpoint-49 (idempotent rm-and-relink) — the assembled
+  `resume-checkpoint-49` now carries `.metadata` + `common.pt` + all 8
+  `.distcp` shards + 4 `mp_rank_*` dirs + `scheduler.pt` + 4 rng states +
+  pipeline state (step=49, 50 log_history entries). Job 7198659 will redo
+  the identical assembly at start and resume at step 50 (~350 steps ≈ 9 h
+  remaining, fits the fresh 12 h walltime).
