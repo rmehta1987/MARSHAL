@@ -213,6 +213,12 @@ if [ "$BEST_STEP" -ge 0 ]; then
     # Rebuild from scratch every run (cheap symlink farm; avoids ln -sf dereference traps).
     rm -rf "$RESUME_DIR"
     mkdir -p "$RESUME_DIR"
+    # dotglob is LOAD-BEARING (job 7198332 run 4, the first live resume):
+    # megatron dist_checkpointing reads iter_0000001/dist_optimizer/.metadata
+    # (written by TP rank 0 only), and plain bash globs skip dotfiles ->
+    # FileNotFoundError at the optimizer load. The original
+    # scripts/simlink_resume_dir.sh sets dotglob for the same reason.
+    shopt -s dotglob
     # 1) actor_train-0's checkpoint contents (model config, tokenizer, scheduler.pt, ...)
     for f in "$BEST_RUN/actor_train-0/checkpoint-$BEST_STEP"/*; do
         ln -sfn "$f" "$RESUME_DIR/$(basename "$f")"
@@ -236,6 +242,7 @@ if [ "$BEST_STEP" -ge 0 ]; then
     for rank_dir in "$BEST_RUN"/actor_train-*/checkpoint-$BEST_STEP/iter_0000001/mp_rank_*; do
         ln -sfn "$rank_dir" "$RESUME_DIR/iter_0000001/$(basename "$rank_dir")"
     done
+    shopt -u dotglob
     # 4) pipeline state (step counter + metric history) — copied, not linked
     mkdir -p "$RESUME_DIR/pipeline"
     cp "$BEST_RUN/pipeline/checkpoint-$BEST_STEP/pipeline/worker_state_pipeline.json" "$RESUME_DIR/pipeline/"
