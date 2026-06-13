@@ -53,8 +53,17 @@ tracker_kwargs:
 
 num_gpus_per_node: 4
 
+# save_steps lowered 50 -> 25 (2026-06-13) after three consecutive runs on the
+# preemptable queue (job 7198332 run 2; job 7198659 runs 1-2) were preempted
+# before the 50-step save interval (~80 min) could bank progress past
+# checkpoint-49. 25 steps ~= 38 min at-risk window — ~2x the odds a run reaches
+# a new save. Saves now at steps 24,49,74,...,399 ((step+1) % 25 == 0); final
+# step is still a save step. Disk under control via the keep-newest-two-plus-
+# final prune policy (~106-159 G of ~1 TB headroom). Compatible with resuming
+# from the existing checkpoint-49: the wrap's scan keys off complete
+# checkpoints on disk, not save_steps.
 max_steps: 400
-save_steps: 50
+save_steps: 25
 logging_steps: 1
 eval_steps: 1000
 # oc.decode is REQUIRED: bare oc.env returns the STRING "False" for the
