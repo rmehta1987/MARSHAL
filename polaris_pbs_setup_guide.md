@@ -459,6 +459,29 @@ for anything longer; its measured numbers drive the planning:
 - **Persisted caches help long/repeated runs.** `TORCH_EXTENSIONS_DIR`,
   `TRITON_CACHE_DIR`, `TORCHINDUCTOR_CACHE_DIR`, `HF_HOME` are on eagle and
   reused across jobs; the venv tarball staging cost is a flat ~15 s/job.
+- **Realized: a full 400-step / ~10.5 h production run (job 7198659,
+  2026-06-13).** This is no longer a plan — it ran. Config
+  `agentic_val_tictactoe_selfplay_polaris_megatron_long.yaml` (max_steps 400,
+  save_steps 25, the proven layout B) + wrap `train_polaris_megatron_long.pbs`
+  (`-q preemptable`, `-r y`, walltime 12 h). It completed `Exit_status 0`,
+  `run_count 4`, `resources_used.walltime = 10:48:37` — cumulative across 4
+  automatically-requeued runs. Measured: steady **~2 min/step** in run 4's
+  ~10.6 h contiguous window; resume overhead ~5 min/requeue; the final
+  `checkpoint-399` is 4 × 2.0 GB `mp_rank` shards + dist_optimizer (~8 G/save,
+  smaller than the 20-step run's 14 G/rank because the long config trims
+  rollout width). Three things made it survive a heavily-subscribed queue:
+  (1) `-r y` requeue-on-preemption, (2) `resume_from_checkpoint` pointed at a
+  wrap-assembled merged checkpoint dir (the auto-resume block scans for the
+  highest *complete* checkpoint — all 4 ranks' `model_optim_rng.pt` **and**
+  `pipeline/.../worker_state_pipeline.json` present — then symlink-farms it
+  with `shopt -s dotglob` so megatron's rank-0-only `dist_optimizer/.metadata`
+  dotfile is included), and (3) **`save_steps` retuned 50→25** so the at-risk
+  window between saves (~38 min) is shorter than the typical preemption
+  interval. The earlier 50-step setting lost three runs to preemption before
+  any new save banked; 25 was the value that let progress ratchet. Disk stayed
+  flat (~9.1 T of 10 T) under keep-newest-two-plus-final pruning: superseded
+  saves go to a `checkpoint-<N>_listing_proof.txt` (full `ls -laR` + `du`) and
+  are `rm -rf`'d; final retained set was 374 + 399.
 
 ---
 

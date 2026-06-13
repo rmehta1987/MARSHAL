@@ -3,8 +3,9 @@
 This note explains, in everyday terms, how much GPU horsepower the real "Megatron"
 training run needed on Polaris, and where the real difficulty turned out to be. It was
 originally written as a forecast before the work; this version records what actually
-happened (2026-06-12). Companion to `polaris_pbs_notes.md` (which has the technical
-detail, job ids, and measurements).
+happened (2026-06-12 for the short proofs, 2026-06-13 for the full ~10.5-hour
+production run). Companion to `polaris_pbs_notes.md` (which has the technical detail,
+job ids, and measurements).
 
 ---
 
@@ -21,7 +22,9 @@ things can run at once" (4,096). The first green run scraped under that cap by l
 **two slots**. We then found that a single helper program had been hogging more than
 half the budget (2,120 slots) for no good reason, trimmed it, and the cap stopped being
 a coin flip. A request to raise the cap is still worth filing — the draft is in the
-notes — but it was not needed to get the run green.
+notes — but it was not needed to get the run green. And it held up under load: a full
+**400-step, ~10.5-hour production run** later completed cleanly on that same single
+node, surviving four automatic restarts on Polaris's preemptible queue (details below).
 
 ---
 
@@ -33,7 +36,7 @@ notes — but it was not needed to get the run green.
 | How the model sits on GPUs | a full copy fits on one GPU | **split four ways** across the node's 4 GPUs, which act as one (tensor parallelism) |
 | GPUs used | 3 of the 4 (one per role, kept separate) | **all 4 for training**, with the move-generator in GPU 0's spare room and the comparison copy in GPU 1's |
 | Training engine | the lighter "DeepSpeed" engine | the heavier-duty **Megatron** engine, the one MARSHAL's real experiments use |
-| Proof | 3 steps (job 7186746) | 3 steps (job 7197427), then a 20-step run |
+| Proof | 3 steps (job 7186746) | 3 steps (7197427) → 20-step proof (7197442) → **full 400-step / ~10.5 h production run (7198659)** |
 
 One forecast in the earlier version of this note did **not** survive contact with
 reality, in a good way: we expected every role to need all four GPUs ganged together
@@ -83,8 +86,47 @@ So the order of remedies ended up being:
 
 ---
 
+## Going the distance — the full production run (GREEN 2026-06-13)
+
+The 3- and 20-step runs proved the *shape* works. The real question for actual
+experiments is whether it survives **hours**, not minutes — and on Polaris the only
+queue that allows multi-hour single-node jobs (`preemptable`) can **kick your job off
+at any moment** to make room for someone else's. So the long run had to do two things
+the short runs never tested: keep training for ~10 hours, and pick itself back up every
+time it got kicked off.
+
+It did. Job 7198659 finished a **400-step run in 10 hours 49 minutes of compute**,
+spread across **four automatic restarts** — exit status clean (0). What made that
+work, in plain terms:
+
+- **It saves its progress every 25 steps** (~38 minutes of work). We first tried saving
+  every 50 steps and lost three restarts in a row to bad luck — each got kicked off
+  before it reached a save. Halving the interval was the fix: now a restart almost
+  always banks new progress before the next interruption.
+- **When kicked off, the job is automatically put back in line** (the `-r y` flag), and
+  on restart it **finds its most recent complete save and continues from there** —
+  losing only the ~5 minutes it takes to reload, not the hours already done. The one
+  subtlety that took a try to get right: a save isn't "complete" until *all four* GPUs'
+  pieces are on disk *and* a tiny bookkeeping file (a hidden dotfile the training engine
+  writes) is included — the restart logic now checks for exactly that before trusting a
+  save.
+- **Disk stayed flat** (~9.1 of 10 TB) the whole time, because we keep only the two
+  newest saves plus the final one and replace the rest with a small text listing that
+  proves they existed. A single save of the 4-billion model is ~8 GB; without pruning,
+  fourteen of them would have piled up.
+
+The horsepower story didn't change at all from the short runs: still one node, four
+GPUs, the same comfortable 23–25 GB per GPU, and the per-job slot cap stayed a
+non-issue (peak 2,384 of 4,096 — the dispatcher trim from the short runs held for the
+full ten hours). The long run was a test of *endurance and recovery*, and those are now
+demonstrated, not assumed.
+
+---
+
 *Numbers used: Qwen3-4B ≈ 4.0 billion parameters; Polaris A100 = 40 GB/GPU, 4
 GPUs/node; training state ≈ 18 bytes/parameter ≈ 72 GB split across 4 GPUs; measured
 per-GPU peaks 23.3/25.2/22.1/21.8 GB (job 7197427); per-job cap pids.max = 4,096
 (measured, job 7186710); dispatcher thread count 2,120 (measured, job 7197427's thread
-census). Details and the job ledger: `polaris_pbs_notes.md`.*
+census). Production run (job 7198659): 400 steps, walltime 10:48:37, run_count 4,
+Exit_status 0, ~2 min/step steady state, slot peak 2,384 of 4,096, ~8 GB per save,
+disk steady ~9.1 of 10 TB. Details and the job ledger: `polaris_pbs_notes.md`.*
