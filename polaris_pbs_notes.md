@@ -1285,3 +1285,18 @@ discipline vs the proven 20-step config: only `max_steps` 20→400,
   the full megatron state (sharded distributed-optimizer + model + per-rank
   rng + pipeline step/metric history). The run is now training forward from
   step 50 toward 400.
+- **2026-06-13 — Heavy preemption cadence on `preemptable` tonight; progress
+  stalling at checkpoint-49.** Job 7198659 run 1 was preempted again after
+  finishing step 50 (before reaching the step-99 save), so checkpoint-49
+  remains the floor; the job requeued automatically (run 2 pending). Across
+  attempts 3–4 the preemptions have been arriving faster than the 50-step
+  save interval (~80 min) can bank new progress (run 2 of 7198332 died at
+  rollout step 4; this run at step 50). The mechanisms are all proven; the
+  only obstacle is wall-clock survival between saves. **Decision:** let the
+  already-queued run 2 of 7198659 proceed unchanged (it costs no extra queue
+  wait and re-exercises resume for free); hold in reserve a single-axis
+  retune of `save_steps` 50→25 (≈38 min at-risk window, ~2× the odds a run
+  reaches a new save; disk fine under the keep-newest-two-plus-final prune
+  policy) to apply only if run 2 also fails to bank step 99. Not changing it
+  pre-emptively keeps `save_steps` constant within a jid's run history and
+  the save-cadence arithmetic clean.
