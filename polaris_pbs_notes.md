@@ -1270,3 +1270,18 @@ discipline vs the proven 20-step config: only `max_steps` 20→400,
   pipeline state (step=49, 50 log_history entries). Job 7198659 will redo
   the identical assembly at start and resume at step 50 (~350 steps ≈ 9 h
   remaining, fits the fresh 12 h walltime).
+- **2026-06-13 — RESUME-FROM-CHECKPOINT PROVEN END-TO-END (job 7198659).**
+  The dotglob fix cleared the last blocker. On node `x3212c0s37b0n0` the
+  wrap assembled `resume-checkpoint-49`, and all 4 TP ranks completed
+  `megatron_strategy.load_checkpoint`: `Loading optimizer from
+  .../resume-checkpoint-49/iter_0000001/dist_optimizer` (the `.metadata`
+  read that killed run 4 now succeeds — zero FileNotFoundError) followed by
+  `Loading rng states from .../rng_state/rng_state_{0..3}.pth`. Decisively,
+  the pipeline resumed at the correct step, NOT from zero:
+  `pipeline rollout global step 50 start` → `pipeline step 50 finished` is
+  the first training activity (the `agentic_pipeline.py:123` skip-loop
+  honored the restored `state.step=49`). This is the first time
+  `resume_from_checkpoint` has been exercised on Polaris, and it works for
+  the full megatron state (sharded distributed-optimizer + model + per-rank
+  rng + pipeline step/metric history). The run is now training forward from
+  step 50 toward 400.
