@@ -20,11 +20,13 @@ repro, NOT eval, NOT hyperparameter tuning.
 
 ---
 
-## STATUS (2026-06-12): deepspeed smoke bring-up complete (GREEN, 2026-06-06); megatron scale-up in progress
+## STATUS (2026-06-13): deepspeed smoke bring-up GREEN (2026-06-06); megatron scale-up GREEN (2026-06-12/13)
 
-The 0.5B deepspeed smoke is complete and reproducible (see below). The megatron
-scale-up (Qwen3-4B, `megatron_train` TP=4) is the current work item — see the
-**"Megatron scale-up"** section and the **job ledger** further down.
+Both phases are complete and reproducible. The 0.5B deepspeed smoke (see below)
+and the Qwen3-4B `megatron_train` TP=4 scale-up — 3-step smoke (job 7197427) →
+20-step proof (job 7197442) → 400-step production run (job 7198659, 400/400
+steps, `Exit_status 0`) — are all GREEN. See the **"Megatron scale-up"** section,
+the **400-step production** ledger row, and the **job ledger** further down.
 
 The MARSHAL tictactoe self-play smoke ran end-to-end on Polaris (jid **7186746**): 3 DeepSpeed
 REINFORCE steps → `pipeline complete!` → 12 G `checkpoint-2` + TensorBoard, `Training exited with
@@ -40,10 +42,12 @@ qsub -v MARSHAL_VENV_TARBALL=/lus/eagle/projects/lighthouse-uchicago/members/meh
 # "pipeline complete!" and "Training exited with code: 0".
 ```
 
-> Known residual flakiness: the startup EAGAIN race vs the debug-node cgroup `pids.max=4096`
-> loses ~half the time at RolloutScheduler creation, and a lost run HANGS (qdel + resubmit).
-> The durable fix is an ALCF ticket to raise the per-job `pids.max`. Everything else is fixed
-> in-repo and reproducible.
+> Startup EAGAIN race (0.5B smoke era): the race vs the debug-node cgroup `pids.max=4096`
+> lost ~half the 0.5B smoke's submissions at RolloutScheduler creation (a lost run HANGS;
+> qdel + resubmit). RESOLVED for the megatron path by the RequestScheduler concurrency-pool
+> trim (2048→256, commit 2e84796): the 400-step production run held pids.peak to 2387/4096 and
+> won the startup race reliably, so the ALCF `pids.max` ticket is good hygiene, not a blocker
+> (see the ticket section). Everything is fixed in-repo and reproducible.
 
 ---
 
@@ -815,8 +819,9 @@ this with ALCF support (support@alcf.anl.gov / the ALCF help desk portal)**:
 
 Status: drafted 2026-06-12, not yet filed (flagged to the user). Layout
 engineering proceeds in parallel per the plan above. **Update 2026-06-13:**
-the RequestScheduler pool trim alone held the slot count to peak **2384/4096
-for the entire 10.5 h / 400-step production run (job 7198659)** — so raising
+the RequestScheduler pool trim alone held the slot count to peak **2387/4096
+across the whole 400-step production run (job 7198659; its pids census spans all
+4 requeued runs, run 4 being a single ~10.8 h contiguous block)** — so raising
 `pids.max` is confirmed unnecessary for this Qwen3-4B single-node config and
 remains "good hygiene, not a blocker." It would still be worth filing before
 attempting materially larger configs (more workers or bigger TP), where the
@@ -832,7 +837,7 @@ trimmed baseline has less headroom.
    fallback — details in the decisions log).
 2. **[debug] On-GPU toolchain probe** — new tarball staged; megatron stack
    imports on-node; minimal flash-attn forward on the A100. Status:
-   **Successful** (job 7197416, node `x3004c0s1b0n0`, Exit_status 0: 10.25 G
+   **Successful** (job 7197416, node `x3004c0s1b0n0`, Exit_status 0: 9.6 G
    tarball extracted in 16 s; torch + megatron.core + TE(+pytorch) +
    flash_attn + apex(+CUDA exts) + mcore_adapter all imported in 14.5 s;
    `flash_attn_func` bf16 forward and a TE LayerNorm executed on the A100;
@@ -883,17 +888,17 @@ reached the wrap's probe phase.
 | `logs/wrap_7186739.log`, `logs/nvidia-smi_7186739.txt`, `logs/7186739.*.OU/.ER` | 7186739 | debug | roles on distinct GPUs, first try | Unsuccessful | Config parse error: `device_mapping` was a YAML list; ROLL `eval()`s it — must be a string (`"[0]"`) |
 | `logs/wrap_7186742.log`, `logs/nvidia-smi_7186742.txt`, `logs/7186742.*.OU/.ER` | 7186742 | debug | distinct GPUs, strings fixed | Unsuccessful overall, but the BREAKTHROUGH run | `weight update progress: 100%` over NCCL broadcast (V1 serialization problem gone). Died in the step-0 *validation* cascade: the val RequestScheduler had been killed by the startup EAGAIN race; hung 45 min until qdel. Fix: skip val scheduler when `eval_steps > max_steps` |
 | `logs/wrap_7186746.log`, `logs/nvidia-smi_7186746.txt`, `logs/7186746.*.OU/.ER`, `results/tictactoe_selfplay_polaris_smoke/7186746_*/logs/custom_logs.log` | 7186746 | debug | 0.5B deepspeed smoke, roles on GPUs 0/1/2, val disabled | **Successful — the GREEN bring-up** | 3 steps, `pipeline complete!`, 12 G `checkpoint-2`, TensorBoard events, `Training exited with code: 0` |
-| `logs/wrap_7197416.log`, `logs/nvidia-smi_7197416.txt`, `logs/7197416.*.OU/.ER` | 7197416 | debug | Megatron-toolchain on-GPU probe (`scripts/polaris_megatron_probe.pbs`), new 10.25 G tarball | Successful | Rung 2: stack staged+imported on-node in 14.5 s, `flash_attn_func` bf16 forward + TE LayerNorm ran on the A100, stub dormant, pids.peak 83, Exit_status 0 |
+| `logs/wrap_7197416.log`, `logs/nvidia-smi_7197416.txt`, `logs/7197416.*.OU/.ER` | 7197416 | debug | Megatron-toolchain on-GPU probe (`scripts/polaris_megatron_probe.pbs`), new 9.6 G tarball | Successful | Rung 2: stack staged+imported on-node in 14.5 s, `flash_attn_func` bf16 forward + TE LayerNorm ran on the A100, stub dormant, pids.peak 83, Exit_status 0 |
 | `logs/wrap_7197419.log`, `logs/pids_census_7197419.csv`, `logs/nvidia-smi_7197419.txt`, `logs/7197419.*.OU/.ER`, `results/tictactoe_selfplay_polaris_megatron/7197419_*/logs/custom_logs.log` | 7197419 | debug | Megatron 3-step smoke, layout B, attempt 1 | Unsuccessful | Lost the startup pids race: census `pids.peak` hit the 4096 ceiling during GPU-worker init; `actor_train-2` died at `ActorWorker.initialize()` with `RuntimeError: Resource temporarily unavailable` (NCCL watchdog EAGAIN cascade). Exited cleanly, code 1, ~4 min — no hang. First measured layout-B data point |
 | `logs/wrap_7197421.log`, `logs/pids_census_7197421.csv`, `logs/nvidia-smi_7197421.txt`, `logs/7197421.*.OU/.ER`, `results/tictactoe_selfplay_polaris_megatron/7197421_*/logs/custom_logs.log` | 7197421 | debug | Megatron 3-step smoke, layout B, attempt 2 (unchanged resubmit) | Unsuccessful, but won the race and isolated the next blocker | Startup race won; HF→mca conversion measured FAST (~17 s/rank); vLLM EngineCore then refused to start: `max seq len (40960)` needs 5.62 GiB KV > 2.89 GiB available at util 0.35 — vLLM defaults `max_model_len` to Qwen3-4B's 40960 max_position_embeddings. Fix: `max_model_len: 8192` in the vLLM strategy_config. (Census pids columns read 0 on this node — wrap now derives the cgroup from `/proc/self/cgroup`) |
 | `logs/wrap_7197423.log`, `logs/pids_census_7197423.csv`, `logs/nvidia-smi_7197423.txt`, `logs/7197423.*.OU/.ER`, `results/tictactoe_selfplay_polaris_megatron/7197423_*/logs/custom_logs.log` | 7197423 | debug | Megatron 3-step smoke, layout B, attempt 3 (max_model_len fix) | Unsuccessful | Lost the startup pids race again: census peak 3938/4096, `actor_train-0` EAGAIN at NCCL watchdog during `initialize()`. Race record now 1 win / 2 losses at layout B. Exited cleanly (code 1). Prompted the thread-trim package (RAY_NUM_CPUS 16→8, TORCH_NCCL_ENABLE_MONITORING=0, NCCL socket thread caps) + thread-owner census |
-| `logs/wrap_7197427.log`, `logs/pids_census_7197427.csv`, `logs/thread_census_7197427.log`, `logs/nvidia-smi_7197427.txt`, `logs/7197427.*.OU/.ER`, `results/tictactoe_selfplay_polaris_megatron/7197427_*/` | 7197427 | debug | Megatron 3-step smoke, layout B, attempt 4 (trims + max_model_len) | **Successful — megatron GREEN** | 3 steps + `pipeline complete!`, megatron checkpoint `mp_rank_0{0..3}/model_optim_rng.pt` + `dist_optimizer` (14 G/rank), grad_norm 1.31→0.71, tps ~185–202, Exit_status 0, 11m54s. Census: pids.peak **4094/4096**, per-GPU maxima 23.3/25.2/22.1/21.8 GB. Thread census attributed 2120 threads to `ray::RequestScheduler` (its `multi_thread: 2048` Ray concurrency pool fills eagerly) |
+| `logs/wrap_7197427.log`, `logs/pids_census_7197427.csv`, `logs/thread_census_7197427.log`, `logs/nvidia-smi_7197427.txt`, `logs/7197427.*.OU/.ER`, `results/tictactoe_selfplay_polaris_megatron/7197427_*/` | 7197427 | debug | Megatron 3-step smoke, layout B, attempt 4 (trims + max_model_len) | **Successful — megatron GREEN** | 3 steps + `pipeline complete!`, megatron checkpoint `mp_rank_0{0..3}/model_optim_rng.pt` + `dist_optimizer` (14 G/rank), grad_norm 1.31→0.71, tps ~181–202, Exit_status 0, 11m54s. Census: pids.peak **4094/4096**, per-GPU maxima 23.3/25.2/22.1/21.8 GB. Thread census attributed 2120 threads to `ray::RequestScheduler` (its `multi_thread: 2048` Ray concurrency pool fills eagerly) |
 | `logs/wrap_7197442.log`, `logs/pids_census_7197442.csv`, `logs/thread_census_7197442.log`, `logs/nvidia-smi_7197442.txt`, `logs/7197442.*.OU/.ER`, `results/tictactoe_selfplay_polaris_megatron/7197442_*/` | 7197442 | debug | **20-step proof run** (megatron layout B + RequestScheduler pool patch), `..._megatron_20step.yaml` | **Successful — the scale-up GREEN** | 20/20 steps, `pipeline complete!`, Exit_status 0, **37m37s**; incremental `checkpoint-9` (written mid-run) + final `checkpoint-19` (`mp_rank_0{0..3}` + `dist_optimizer`, 106 G total); census pids.peak **2313**/4096 (pool patch: was 4094), per-GPU maxima 23.6/25.3/22.3/22.0 GB; tps to 282 |
 | `logs/wrap_7197445.log`, `logs/nvidia-smi_7197445.txt`, `logs/7197445.*.OU/.ER`, `results/tictactoe_selfplay_polaris_smoke/7197445_*/` | 7197445 | debug | 0.5B deepspeed smoke regression from the NEW megatron tarball + RequestScheduler pool patch | Successful | GREEN baseline intact after the env moved: 3/3 steps, `weight update progress: 100%` each step, `pipeline complete!`, `checkpoint-2` written (pruned to listing proof), Exit_status 0, 6m22s — and it won the startup race first try with the pool patch in effect |
 | `logs/wrap_7197546.log`, `logs/pids_census_7197546.csv`, `logs/thread_census_7197546.log`, `logs/nvidia-smi_7197546.txt`, `logs/7197546.*.OU/.ER`, `results/tictactoe_selfplay_polaris_megatron_long/7197546_*/logs/custom_logs.log` | 7197546 | preemptable | Megatron LONG run (400 steps, 12 h walltime, `..._megatron_long.yaml`), attempt 1 | Unsuccessful | NOT the pids race (census peak 2198/4096 — pool patch holding): TCPStore rendezvous-port collision at `setup_collective_group` during the model_update warmup — `RuntimeError: ... port: 49717 ... EADDRINUSE`. The comm-plan dump shows 49717 was allocated to group `model_update_actor_train_2_to_actor_infer_` by `get_free_port()` (bind(0) probe) and was already taken at bind time. Initially read as a ~1-in-6 transient and resubmitted unchanged (7197919); attempt 2 proved it deterministic — see that row. Exited cleanly (code 1, 6m39s). Positives banked: first run on a preemptable node (staging 14 s, probes green, queue wait 3h38m), auto-resume scan correctly chose fresh start |
 | `logs/wrap_7197919.log`, `logs/pids_census_7197919.csv`, `logs/thread_census_7197919.log`, `logs/nvidia-smi_7197919.txt`, `logs/7197919.*.OU/.ER`, `results/tictactoe_selfplay_polaris_megatron_long/7197919_*/logs/custom_logs.log` | 7197919 | preemptable | Megatron LONG run, attempt 2 (unchanged resubmit — single-variable race test) | Unsuccessful, but converted the diagnosis from transient to deterministic | EADDRINUSE on the **same port 49717**, on a DIFFERENT node (`x3209c0s13b0n0` vs `x3209c0s37b1n0`) and a DIFFERENT victim: `reference-0`'s cluster dist-init master port (registered in SharedStorage as `10.201.4.62:49717`) — the pipeline died before any comm plan was built. Two independent bind(0) probes returning the identical port across nodes/runs is not chance: the kernel ephemeral allocator's search is deterministic given near-identical node/socket state, so multiple processes of the same job are handed the same "free" port and the second binder dies. ROLL's SharedStorage port registry cannot help — it dedups only registered cluster-master ports, and `model_update_group.py:120` bypasses it. Fix: re-ranged `Worker.get_free_port()` (see decisions log). Exited cleanly (code 1, 6m16s; pids peak 2166/4096; queue wait 2h04m) |
 | `logs/wrap_7198332.log` (4 runs, banner-delimited), `logs/pids_census_7198332.csv`, `logs/thread_census_7198332.log`, `logs/nvidia-smi_7198332.txt`, `logs/7198332.*.OU/.ER`, `results/tictactoe_selfplay_polaris_megatron_long/7198332_*/` (4 run dirs) | 7198332 | preemptable | Megatron LONG run, attempt 3 (port patch live) — 4 runs under `-r y` | Unsuccessful overall (Exit_status 1, run_count 4), but proved the port patch, banked checkpoint-49, and exercised the first live resume to within one dotfile of working | Run 1 (`x3212c0s7b0n0`, 21:26–21:28): killed ~2 min into the pipeline by ALCF node trouble — the node entered `EXECJOB_END ... processes failed to terminate, cleaning` (stale process from another user's June-4 job 7185375); PBS requeued automatically. Run 2 (`x3210c0s31b0n0`, 21:33–~21:41): **port patch proven** — all 8 rendezvous ports in 20000–32000 (cluster masters 21944/27680/27833/28129; comm-plan groups 24301/24803/25030/27794), dist-init + comm-group warmup + first weight sync all passed; preempted mid-first-rollout (4/16 trajectories; no node fault → genuine preemption). Run 3 (`x3212c0s31b0n0`, 21:47–~23:20): trained steps 0–64; **`checkpoint-49` written mid-run and verified complete** (4 × 14 G `mp_rank` shards of 2,011,703,942 B + dist_optimizer + pipeline state); preempted — loss capped at 15 steps by save_steps=50, as designed. Run 4 (`x3210c0s31b1n0`, 00:00–00:05): **first live auto-resume** — the wrap detected step 49, assembled `resume-checkpoint-49`, the driver + all 4 TP ranks loaded the resume path and megatron began the dist-optimizer load, then `FileNotFoundError: .../dist_optimizer/.metadata` — the assembly globs lacked `dotglob` (rank-0-only dotfile; `simlink_resume_dir.sh` sets it, the wrap adaptation had dropped it). Script failures do not requeue under `-r y` → job finished. Fixed (commit 59087bf), validated by running the wrap's assembly block verbatim against the real checkpoint-49 (`.metadata` present, pipeline step=49), resubmitted as 7198659 |
-| `logs/wrap_7198659.log` (banner-delimited runs), `logs/pids_census_7198659.csv`, `logs/thread_census_7198659.log`, `logs/nvidia-smi_7198659.txt`, `logs/7198659.*.OU/.ER`, `results/tictactoe_selfplay_polaris_megatron_long/7198659_*/` | 7198659 | preemptable | Megatron LONG run, attempt 4 (dotglob fix) — resumes from checkpoint-49, completes 400 steps across 4 requeued runs | **Successful — the 400-step production GREEN** | **`Exit_status = 0`, `run_count = 4`, `resources_used.walltime = 10:48:37`** (the ~10.5 h production target met); `pipeline complete!` at 19:09:22 UTC, last `pipeline step 399 finished`, pipeline state step=399 / 400 log_history entries; **final `checkpoint-399` complete** (4 × `mp_rank_0{0..3}/model_optim_rng.pt` of 2,011,703,942 B + dist_optimizer + pipeline state); pids peak **2384/4096** (pool patch holding), census 8175 rows; eagle 9.11 T of 10 T soft. Run 1 (`x3212c0s37b0n0`, 05:28–~05:40): **resume-from-checkpoint PROVEN end-to-end** — wrap assembled `resume-checkpoint-49`, all 4 TP ranks loaded optimizer (`.metadata` read now succeeds) + per-rank rng, `pipeline rollout global step 50 start` → `pipeline step 50 finished` confirmed the skip-loop resumed at step 50 (not 0); preempted after step 50. Run 2 (`x3212c0s37b0n0`, ~06:?–07:05): re-assembled resume-49, trained to step 57, preempted before step 99. Three preemptions (this jid ×2 + 7198332 run 2) before any new save → triggered the documented `save_steps` 50→25 retune (commit 28b5d2b). Run 3 (short, requeued). **Run 4 (`x3210c0s37b1n0`, started 08:21:33 UTC): the decisive contiguous window** — re-assembled resume-49, resumed at step 50 (08:29:01 → step 50 finished 08:31:55), then ran **~10.6 h uninterrupted to step 399** at steady ~2 min/step, banking checkpoints at every 25-step boundary (74, 99, 124, …, 374, 399 — 14 saves), each verified complete (4 × 2.0 GB shards + dist_optimizer + pipeline state). Checkpoint hygiene ran live throughout (keep-newest-two-plus-final): superseded saves pruned to `checkpoint-<N>_listing_proof.txt` (full `ls -laR` + `du`); 12 such proofs on disk (49–349), final retained set **374 + 399**, run dir 107 G |
+| `logs/wrap_7198659.log` (banner-delimited runs), `logs/pids_census_7198659.csv`, `logs/thread_census_7198659.log`, `logs/nvidia-smi_7198659.txt`, `logs/7198659.*.OU/.ER`, `results/tictactoe_selfplay_polaris_megatron_long/7198659_*/` | 7198659 | preemptable | Megatron LONG run, attempt 4 (dotglob fix) — resumes from checkpoint-49, completes 400 steps across 4 requeued runs | **Successful — the 400-step production GREEN** | **`Exit_status = 0`, `run_count = 4`, `resources_used.walltime = 10:48:37`** (run 4's walltime; ~13.7 h wall-clock from run 1 start to completion across the 4 requeued runs); `pipeline complete!` at 19:09:22 UTC, last `pipeline step 399 finished`, pipeline state step=399 / 400 log_history entries; **final `checkpoint-399` complete** (4 × `mp_rank_0{0..3}/model_optim_rng.pt` of 2,011,703,942 B + dist_optimizer + pipeline state); pids peak **2387/4096** (pool patch holding), census 8175 rows; eagle 9.11 T of 10 T soft. Run 1 (`x3212c0s37b0n0`, 05:28–~05:40): **resume-from-checkpoint PROVEN end-to-end** — wrap assembled `resume-checkpoint-49`, all 4 TP ranks loaded optimizer (`.metadata` read now succeeds) + per-rank rng, `pipeline rollout global step 50 start` → `pipeline step 50 finished` confirmed the skip-loop resumed at step 50 (not 0); preempted after step 50. Run 2 (`x3212c0s37b0n0`, ~06:?–07:05): re-assembled resume-49, trained to step 57, preempted before step 99. Three preemptions (this jid ×2 + 7198332 run 2) before any new save → triggered the documented `save_steps` 50→25 retune (commit 28b5d2b). Run 3 (short, requeued). **Run 4 (`x3210c0s37b1n0`, started 08:21:33 UTC): the decisive contiguous window** — re-assembled resume-49, resumed at step 50 (08:29:01 → step 50 finished 08:31:55), then ran **~10.8 h uninterrupted to step 399** at steady ~2 min/step, banking checkpoints at every 25-step boundary (74, 99, 124, …, 374, 399 — 14 saves), each verified complete (4 × 2.0 GB shards + dist_optimizer + pipeline state). Checkpoint hygiene ran live throughout (keep-newest-two-plus-final): superseded saves pruned to `checkpoint-<N>_listing_proof.txt` (full `ls -laR` + `du`); 12 such proofs on disk (49–349), final retained set **374 + 399**, run dir 107 G |
 
 ## Decisions / changes log — megatron scale-up
 
@@ -1339,7 +1344,7 @@ discipline vs the proven 20-step config: only `max_steps` 20→400,
 - **2026-06-13 — THE 400-STEP PRODUCTION RUN IS GREEN (job 7198659,
   `Exit_status 0`, `run_count 4`, walltime 10:48:37).** The save_steps=25
   retune was the decisive change. After run 3's short window, **run 4
-  (`x3210c0s37b1n0`, started 08:21:33 UTC) got a single contiguous ~10.6 h
+  (`x3210c0s37b1n0`, started 08:21:33 UTC) got a single contiguous ~10.8 h
   block on `preemptable`** and carried the cumulative run from the step-49
   floor all the way to step 399: resumed at step 50 (08:29:01 → step 50
   finished 08:31:55), then steady ~2 min/step to `pipeline complete!` at
@@ -1347,7 +1352,7 @@ discipline vs the proven 20-step config: only `max_steps` 20→400,
   shards + dist_optimizer + pipeline state, step=399 / 400 log_history
   entries) verified complete on disk. **Every mechanism this bring-up built
   is now demonstrated end-to-end in one run:** layout B (memory + pids: peak
-  2384/4096, pool patch holding), the deterministic rendezvous-port fix (the
+  2387/4096, pool patch holding), the deterministic rendezvous-port fix (the
   20000–32000 SystemRandom probe — zero EADDRINUSE across the whole run),
   incremental megatron checkpointing every 25 steps (14 saves banked),
   automatic requeue on preemption (4 runs, each resuming from the latest
@@ -1385,7 +1390,7 @@ repo `README.md`, retrieved 2026-06-13):
 
 **What this run produced** (training-internal diagnostics, job 7198659): a
 normalized `critic/score/mean` curve (−5.42 at step 50 → −1.26 at step 399),
-`actor_train/grad_norm` (bounded ~6–17, no divergence), `actor/kl_loss`
+`actor_train/grad_norm` (bounded, no divergence — range ≈1.2–29, ending ≈5.9), `actor/kl_loss`
 (0.82 → 0.17), throughput (216 → 312 tok/s), and the self-play
 win-distribution / per-player response-length split. None of these has a
 published counterpart, and `critic/score/mean` is config-normalized
@@ -1430,13 +1435,15 @@ paper-grade model, and would not reproduce the paper's eval numbers.
   exact base model (Qwen3-4B) via the strategy the real configs use
   (`megatron_train`, TP=4). As a reproduction of the *training pipeline* it is
   faithful.
-- **Learning signal — consistent with the paper's premise, weak evidence.**
-  `critic/score/mean` improved monotonically in the back half (flat ~−5.4 through
-  step ~200, then −4.71 at 250 → −1.26 at 300, held to step 399) with stable
-  grad-norm and declining KL — the machinery produces a real learning signal.
-  This is consistent with the paper's claim that its advantage estimation enables
-  learning in multi-turn self-play, but with no baseline (e.g. GRPO) run and at
-  this scale it is suggestive, not confirmatory.
+- **Learning signal — present, not attributable to the method.**
+  `critic/score/mean` improved in the back half (flat ~−5.4 through step ~200,
+  then −4.71 at 250 → −1.26 at 300, held to step 399) with bounded grad-norm and
+  declining KL — i.e. the optimization machinery runs and moves a normalized
+  reward. This does NOT isolate MARSHAL's contribution: the score is
+  config-normalized, there is no baseline (e.g. GRPO) or ablation, and the scale
+  is tiny, so the curve cannot distinguish "the turn-level advantage estimator
+  works" from "any RL signal moves a normalized reward on a trivial game."
+  Consistent with the paper's premise, but not evidence for it.
 - **Observed self-play asymmetry — Inconclusive.** Player-0's mean response
   length collapsed (≈1683 → ≈313 tokens over the run) while player-1 stayed long
   (≈1480), and the win-distribution metric shifted from 0.875 to 0.0 (draws ≈ 0
