@@ -1360,3 +1360,109 @@ discipline vs the proven 20-step config: only `max_steps` 20→400,
   of 10 T soft. This closes the Polaris megatron scale-up: the 3-step smoke
   (7197427) → 20-step proof (7197442) → 400-step production run (7198659) are
   all GREEN.
+
+## Comparison to the published MARSHAL results — not apples-to-apples
+
+**Scope reminder.** This effort's charter (CLAUDE.md) is "cluster bring-up only
+... NOT reproducing paper results, NOT evaluating the algorithm, NOT tuning
+hyperparameters." The question "how do our numbers compare to the paper?" is
+recorded here for completeness, not because a match was a goal. The short
+answer: **no direct numeric comparison is possible** — for two independent
+reasons (metric category and scale) — but the run is a faithful *method + model*
+reproduction of MARSHAL's training pipeline.
+
+**What the published paper reports** (MARSHAL, arXiv:2510.15414; abstract +
+repo `README.md`, retrieved 2026-06-13):
+
+- Base model: **Qwen3-4B** — the same model this run trained.
+- Strategic games: "up to **28.7%** improvement in held-out games" (held-out
+  generalization vs. baselines).
+- Reasoning benchmarks via multi-agent-system integration (MAD / AutoGen /
+  MASLab, 7 math+QA benchmarks): **+10.0%** AIME, **+7.6%** GPQA-Diamond,
+  **+3.5%** average.
+- These are all **downstream evaluation** metrics. The paper publishes **no
+  training reward curves**.
+
+**What this run produced** (training-internal diagnostics, job 7198659): a
+normalized `critic/score/mean` curve (−5.42 at step 50 → −1.26 at step 399),
+`actor_train/grad_norm` (bounded ~6–17, no divergence), `actor/kl_loss`
+(0.82 → 0.17), throughput (216 → 312 tok/s), and the self-play
+win-distribution / per-player response-length split. None of these has a
+published counterpart, and `critic/score/mean` is config-normalized
+(`reward_normalization.method: mean`, `separate_norm_for_selfplay: true`), so
+its absolute scale is not comparable across configurations.
+
+**Mismatch 1 — metric category.** The paper reports eval outcomes (win-rate /
+benchmark accuracy); we recorded training dynamics. The two do not map onto
+each other.
+
+**Mismatch 2 — scale.** This run held MARSHAL's *method and model* identical to
+the upstream `examples/tictactoe/agentic_val_tictactoe_selfplay.yaml` but ran at
+a deliberately reduced data scale (to fit one A100 node under `pids.max=4096`):
+
+| Knob | Upstream (paper-repro config) | This run (bring-up) | Note |
+|---|---|---|---|
+| `pretrain` (base model) | Qwen3-4B | Qwen3-4B | identical |
+| `adv_estimator` | reinforce | reinforce | identical (MARSHAL's method) |
+| `advantage_norm` | mean | mean | identical (MARSHAL's method) |
+| `use_turn_scores` | True | True | identical (turn-level credit) |
+| `tensor_model_parallel_size` / `num_gpus_per_node` | 4 / 4 | 4 / 4 | identical |
+| `max_steps` | 200 | 400 | more steps, but see below |
+| `rollout_batch_size` | 128 | 16 | 8× fewer trajectories/step |
+| `env_groups` × `group_size` | 64 × 1 | 2 × 4 | 32× fewer distinct env seeds/step |
+| `sequence_length` | 32768 | 4096 | 8× shorter horizon |
+| `max_new_tokens` | 4096 | 1024 | 4× shorter responses |
+| `val_batch_size` | 1500 | 16 | validation disabled in the smoke/long config |
+
+So although this run executed *more* optimization steps (400 vs 200), each step
+sampled ~8× fewer trajectories over an 8× shorter horizon with ~32× less env-seed
+diversity — the policy saw a small fraction of the paper's experience.
+(`rollout_batch_size` ≈ 2× the env count in both configs, so it and `env_groups`
+co-scale and should not be multiplied into one factor; the dominant volume gap is
+the 8× `rollout_batch_size`, with `env_groups` reducing per-step position
+diversity on top.) The resulting `checkpoint-399` is a bring-up artifact, not a
+paper-grade model, and would not reproduce the paper's eval numbers.
+
+**What IS comparable (qualitative).**
+
+- **Method + model fidelity — Successful.** The run exercised MARSHAL's exact
+  algorithm (reinforce + mean advantage-normalization + turn-level scores) on its
+  exact base model (Qwen3-4B) via the strategy the real configs use
+  (`megatron_train`, TP=4). As a reproduction of the *training pipeline* it is
+  faithful.
+- **Learning signal — consistent with the paper's premise, weak evidence.**
+  `critic/score/mean` improved monotonically in the back half (flat ~−5.4 through
+  step ~200, then −4.71 at 250 → −1.26 at 300, held to step 399) with stable
+  grad-norm and declining KL — the machinery produces a real learning signal.
+  This is consistent with the paper's claim that its advantage estimation enables
+  learning in multi-turn self-play, but with no baseline (e.g. GRPO) run and at
+  this scale it is suggestive, not confirmatory.
+- **Observed self-play asymmetry — Inconclusive.** Player-0's mean response
+  length collapsed (≈1683 → ≈313 tokens over the run) while player-1 stayed long
+  (≈1480), and the win-distribution metric shifted from 0.875 to 0.0 (draws ≈ 0
+  throughout). This is the class of multi-agent self-play credit-assignment
+  instability the paper targets, but attributing it to the method succeeding or
+  failing needs the paper's own diagnostics and a baseline comparison — out of
+  scope for bring-up.
+
+**What a real comparison would require.**
+
+- *On the paper's terms (evaluation):* run an eval pass on a trained checkpoint —
+  play it against fixed/baseline opponents for game win-rates, and/or run the
+  MASLab reasoning suite (AIME / GPQA / …) with it inside a MAS framework.
+  `checkpoint-399` exists, so this is doable as a separate effort, though a
+  bring-up-scale checkpoint would under-perform the paper.
+- *To reproduce the paper's numbers:* train at the upstream config's full scale
+  (`rollout_batch_size: 128`, `env_groups: 64`, `sequence_length: 32768`). That
+  re-stresses the exact memory and `pids.max` limits this bring-up engineered
+  around (more env groups → more processes), so it is a genuine escalation, not a
+  config flip — and likely needs the ALCF `pids.max` raise (see the ticket draft
+  above) and/or multi-node.
+- *Systems-side:* the ROLL technical report (`assets/Alibaba_Roll_TecReport.pdf`)
+  is the only place a throughput/scaling comparison could anchor, but this run's
+  ~300 tok/s is specific to tic-tac-toe on one 4×A100-40GB node and ROLL's report
+  covers different models/hardware, so any such comparison is loose.
+
+**Outcome: Inconclusive by design.** The training *pipeline* is reproduced and
+GREEN; the *published results* are downstream evaluations at full scale that this
+bring-up neither targeted nor produced.
