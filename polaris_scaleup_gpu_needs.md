@@ -1,4 +1,4 @@
-# The Megatron training run on Polaris — what it actually took (plain-language note)
+# The Megatron training run on Polaris 
 
 This note explains, in everyday terms, how much GPU horsepower the real "Megatron"
 training run needed on Polaris, and where the real difficulty turned out to be. It was
@@ -9,7 +9,7 @@ job ids, and measurements).
 
 ---
 
-## The one-paragraph answer
+## The real run
 
 The small test used a **small** model (half a billion adjustable values) and gave each
 job-role its own GPU. The real run uses a model **about eight times bigger** (Qwen3-4B)
@@ -63,7 +63,7 @@ without waiting on ALCF.
 
 ---
 
-## The real bottleneck was exactly where we predicted — with a twist
+## The real bottleneck 
 
 The per-job "how many programs and threads at once" cap (4,096) was indeed the hard
 constraint — two of the four attempts died on it during startup, and the green run
@@ -79,10 +79,9 @@ So the order of remedies ended up being:
 1. **Trim what we control** (the dispatcher's reservation, idle worker pools,
    per-process thread pools) — this is what actually got the run green, and it is all
    recorded in the repo so it stays fixed.
-2. **Still ask ALCF to raise the cap** — the request text is drafted in
+2. **Is it possible for ALCF to raise the cap** — the request text is drafted in
    `polaris_pbs_notes.md`; a higher cap would remove the class of problem entirely,
-   especially for bigger future configurations. It is no longer a blocker, just good
-   hygiene.
+   especially for bigger future configurations. 
 
 ---
 
@@ -95,7 +94,7 @@ at any moment** to make room for someone else's. So the long run had to do two t
 the short runs never tested: keep training for ~10 hours, and pick itself back up every
 time it got kicked off.
 
-It did. Job 7198659 finished a **400-step run in 10 hours 49 minutes of compute**,
+We showed it can via Job 7198659 finished a **400-step run in 10 hours 49 minutes of compute**,
 spread across **four automatic restarts** — exit status clean (0). What made that
 work, in plain terms:
 
@@ -115,11 +114,10 @@ work, in plain terms:
   proves they existed. A single save of the 4-billion model is ~8 GB; without pruning,
   fourteen of them would have piled up.
 
-The horsepower story didn't change at all from the short runs: still one node, four
+The requirement remamined still one node, four
 GPUs, the same comfortable 23–25 GB per GPU, and the per-job slot cap stayed a
 non-issue (peak 2,384 of 4,096 — the dispatcher trim from the short runs held for the
-full ten hours). The long run was a test of *endurance and recovery*, and those are now
-demonstrated, not assumed.
+full ten hours). 
 
 ---
 
