@@ -124,6 +124,7 @@ def arena(records, source="eval"):
             if any(outcome_for(rec, s) == "forfeit" for s in (0, 1)):
                 cell["outcomes"]["forfeit"] += 1
             else:
+                cell["outcomes"]["other"] += 1  # played out; the score says how well
                 cell["scores"].append(score if score is not None else 0.0)
             cell["ids"].append(rec["id"])
             _tokens(cell, rec, (0, 1))

@@ -153,6 +153,16 @@ metrics in `display/data/metrics/` and MARSHAL's reward code:
 - The 400-step Polaris run's score did move (−5.4 → −1.26). Its full curves are on
   Polaris (see above).
 
+From the Arena evaluation recorded on the Strix Halo (88 games, 2026-10-30):
+
+- MARSHAL 4B forfeited **1 of 44** games, base Qwen3-4B **14 of 44**. The base
+  model's answers run long (e.g. 1,962 vs 1,184 tokens per answer in Kuhn Poker,
+  3,584 vs 1,608 in Mini Hanabi): it forfeited every Mini Hanabi game and 7 of 8
+  Connect Four games, where MARSHAL finished all of them (Hanabi score 2.5 of 4).
+- Win rates against the bots are within noise of each other at 8–12 games per
+  cell (Tic-Tac-Toe 4/8 each; Kuhn 5 vs 6 of 12; Leduc 7 vs 5 of 12). Neither
+  model beats MCTS at Connect Four.
+
 ## Controls
 
 | Key | Action |

@@ -273,6 +273,7 @@ class ArenaTest(unittest.TestCase):
         cell = arena(recs)["cells"][0]
         self.assertEqual(cell["mean_score"], 3.0)
         self.assertEqual(cell["outcomes"]["forfeit"], 1)
+        self.assertEqual(cell["outcomes"]["other"], 1)
 
     def test_index_reads_saved_games(self):
         with tempfile.TemporaryDirectory() as d:

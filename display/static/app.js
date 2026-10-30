@@ -880,7 +880,7 @@
       ${keys.map((t) => `<div class="dhead row">Team (Alice + Bob):<br><b>${esc(D.models[t])}</b></div>${keys.map((e) => cell(t, e)).join("")}`).join("")}
     </div>`;
     return head("MARSHAL in Decrypto, a game it never trained on",
-      `Decrypto is a word game about reading people: Alice hints at a secret code so Bob can decode it, while Eve, on the other team, tries to intercept it. It needs MARSHAL's skills (signaling a partner, reasoning about hidden information, modeling an opponent) in a new form. ${total} games so far, run by Decrypto's own code with the same settings for both models.`) +
+      `Decrypto is a word game about reading people: Alice hints at a secret code so Bob can decode it, while Eve, on the other team, tries to intercept it. It needs MARSHAL's skills (signaling a partner, reasoning about hidden information, modeling an opponent) in a new form. ${total} game${total === 1 ? "" : "s"} so far, run by Decrypto's own code with the same settings for both models.`) +
       `<div class="slide-body arena-grid">
         <div style="display:grid;grid-template-rows:auto auto auto;gap:0.8rem;min-height:0;align-content:start;overflow:hidden">
           <div class="legend"><span><i style="background:var(--win)"></i>Team survives 8 rounds</span><span><i style="background:var(--forfeit)"></i>Team miscommunicates twice</span><span><i style="background:var(--loss)"></i>Eve intercepts twice</span><span><i style="background:var(--axis)"></i>Both at once</span></div>
