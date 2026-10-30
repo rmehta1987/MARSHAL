@@ -860,6 +860,21 @@
       </div>`;
     };
     const total = P.reduce((a, p) => a + p.episodes, 0);
+    const pct = (v) => (v == null ? "–" : `${Math.round(v * 100)}%`);
+    const clueRows = keys.filter((k) => D.clues?.[k]?.clues).map((k) => {
+      const c = D.clues[k];
+      return `<tr><td class="k">${esc(c.name)}</td><td><b>${c.stem_clues}</b> of ${c.clues} (${pct(c.stem_share)})</td>
+        <td>${pct(c.intercept_rate_with_stem)} <span class="note">(${c.intercepts_with_stem}/${c.rounds_with_stem})</span></td>
+        <td>${pct(c.intercept_rate_without)} <span class="note">(${c.intercepts - c.intercepts_with_stem}/${c.rounds - c.rounds_with_stem})</span></td>
+        <td class="note">${esc((c.examples || []).slice(0, 3).join(", "))}</td></tr>`;
+    }).join("");
+    const clueBox = clueRows ? `<div class="box"><h3>How each model writes clues as Alice</h3>
+      <table class="drift"><thead><tr><th>Team model</th><th>Clue copies its keyword's stem</th><th>Eve intercepts, rounds with one</th><th>…rounds without</th><th>Examples (keyword → clue)</th></tr></thead><tbody>${clueRows}</tbody></table></div>` : "";
+    const capCell = (s) => (s && s.moves ? `${s.capped}/${s.moves} <span class="note">(${pct(s.cap_rate)}, ~${s.mean_tokens} tokens)</span>` : "–");
+    const capRows = keys.filter((k) => D.cap?.[k]).map((k) => `<tr><td class="k">${esc(D.models[k])}</td><td>${capCell(D.cap[k].encoder)}</td><td>${capCell(D.cap[k].decoder)}</td><td>${capCell(D.cap[k].interceptor)}</td></tr>`).join("");
+    const capBox = capRows ? `<div class="box"><h3>Thinking cut off by Decrypto's 1024-token budget</h3>
+      <table class="drift"><thead><tr><th>Model</th><th>as Alice</th><th>as Bob</th><th>as Eve</th></tr></thead><tbody>${capRows}</tbody></table>
+      <p class="note" style="margin-top:0.4rem">Moves whose thinking reached the budget (≥ 1015 tokens) and was cut off before the model concluded; Decrypto then forces an answer.</p></div>` : "";
     const grid = `<div class="dgrid" style="grid-template-columns:12rem repeat(${keys.length},minmax(0,1fr))">
       <div></div>${keys.map((k) => `<div class="dhead">Eve: <b>${esc(D.models[k])}</b></div>`).join("")}
       ${keys.map((t) => `<div class="dhead row">Team (Alice + Bob):<br><b>${esc(D.models[t])}</b></div>${keys.map((e) => cell(t, e)).join("")}`).join("")}
@@ -867,9 +882,11 @@
     return head("MARSHAL in Decrypto, a game it never trained on",
       `Decrypto is a word game about reading people: Alice hints at a secret code so Bob can decode it, while Eve, on the other team, tries to intercept it. It needs MARSHAL's skills (signaling a partner, reasoning about hidden information, modeling an opponent) in a new form. ${total} games so far, run by Decrypto's own code with the same settings for both models.`) +
       `<div class="slide-body arena-grid">
-        <div style="display:grid;grid-template-rows:auto minmax(0,1fr);gap:0.6rem;min-height:0">
+        <div style="display:grid;grid-template-rows:auto auto auto;gap:0.8rem;min-height:0;align-content:start;overflow:hidden">
           <div class="legend"><span><i style="background:var(--win)"></i>Team survives 8 rounds</span><span><i style="background:var(--forfeit)"></i>Team miscommunicates twice</span><span><i style="background:var(--loss)"></i>Eve intercepts twice</span><span><i style="background:var(--axis)"></i>Both at once</span></div>
           ${grid}
+          ${clueBox}
+          ${capBox}
         </div>
         <div class="side-notes">
           <div class="box"><h3>How to read it</h3><p>Compare along a column to see which <b>team</b> communicates better against the same Eve. Compare along a row to see which <b>Eve</b> reads the same team better. Miscommunications are the team's own failures; interceptions are Eve's wins.</p></div>
@@ -923,7 +940,8 @@
           if (!n) return "";
           const pct = (n / c.games) * 100;
           const label = pct >= 9 ? n : "";
-          return `<span class="seg ${k}" style="flex:${n}" data-tip="${esc(`${c.name} vs ${c.opponent} · ${titles[g]}|${k === "other" ? "Hanabi game finished" : k[0].toUpperCase() + k.slice(1)}: ${n} of ${c.games} games (${Math.round(pct)}%)|${c.tokens_per_answer ? `~${c.tokens_per_answer.toLocaleString("en-US")} tokens per answer` : ""}`)}">${label}</span>`;
+          const ci = k === "win" && c.win_ci ? ` · 95% range ${Math.round(c.win_ci[0] * 100)}–${Math.round(c.win_ci[1] * 100)}%` : "";
+          return `<span class="seg ${k}" style="flex:${n}" data-tip="${esc(`${c.name} vs ${c.opponent} · ${titles[g]}|${k === "other" ? "Hanabi game finished" : k[0].toUpperCase() + k.slice(1)}: ${n} of ${c.games} games (${Math.round(pct)}%)${ci}|${c.tokens_per_answer ? `~${c.tokens_per_answer.toLocaleString("en-US")} tokens per answer` : ""}`)}">${label}</span>`;
         }).join("");
         return `<div class="bar-line" tabindex="0" data-ids="${esc(c.ids.join(","))}" aria-label="${esc(`${c.name}: ${c.outcomes.win} wins, ${c.outcomes.draw} draws, ${c.outcomes.loss} losses, ${c.outcomes.forfeit} forfeits of ${c.games}`)}">
           <span class="who">${esc(c.name)}</span><div class="seg-bar">${segs}</div><span class="stat">${cellStat(c)}</span></div>`;
@@ -931,7 +949,19 @@
       return `<div class="arena-row"><div class="gname"><b>${titles[g]}</b><span>${split === "held-out" ? "held out · " : ""}vs ${esc(g === "hanabi" ? "itself (team play)" : opp)}</span></div><div class="bars">${bars}</div></div>`;
     }).join("");
     const total = A.cells.reduce((a, c) => a + c.games, 0);
-    const h2h = (A.head_to_head || []).map((h) => `<p>${esc(h.title)}: ${h.models.map((m) => `${esc(h.names[m] || m)} ${h.wins[m]} wins`).join(", ")}, ${h.draws} draws (${h.games} games).</p>`).join("");
+    const byModel = {};
+    for (const c of A.cells) {
+      const m = (byModel[c.model] = byModel[c.model] || { name: c.name, games: 0, forfeits: 0, tok: 0, answers: 0 });
+      m.games += c.games;
+      m.forfeits += c.outcomes.forfeit || 0;
+      m.tok += (c.tokens_per_answer || 0) * (c.answers || 0);
+      m.answers += c.answers || 0;
+    }
+    const models = Object.values(byModel);
+    const standout = models.length ? `<div class="box"><h3>What stands out</h3>
+      <p>Games forfeited (bad format, or an answer past 4096 tokens): ${models.map((m) => `<b>${esc(m.name)}</b> ${m.forfeits} of ${m.games}`).join(" · ")}.</p>
+      <p style="margin-top:0.35rem">Average answer: ${models.map((m) => `${esc(m.name)} ${m.answers ? Math.round(m.tok / m.answers).toLocaleString("en-US") : "–"} tokens`).join(" · ")}.</p></div>` : "";
+    const h2h =(A.head_to_head || []).map((h) => `<p>${esc(h.title)}: ${h.models.map((m) => `${esc(h.names[m] || m)} ${h.wins[m]} wins`).join(", ")}, ${h.draws} draws (${h.games} games).</p>`).join("");
     return head("Arena: base Qwen3-4B vs MARSHAL, against the same opponents",
       `${total} games played on this machine with MARSHAL's own game code and prompts, under the paper's limits (4096-token answers). Each model moved first in half its games. Click a bar to watch those games.`) +
       `<div class="slide-body arena-grid">
@@ -940,6 +970,7 @@
           <div class="arena-rows">${rows}</div>
         </div>
         <div class="side-notes">
+          ${standout}
           <div class="box"><h3>The models</h3><p><b>Qwen3-4B</b> is the base model. <b>MARSHAL 4B</b> is the published <code>MARSHAL-Generalist-Qwen3-4B</code>, trained by self-play on Tic-Tac-Toe, Kuhn Poker and Mini Hanabi. Connect Four and Leduc Hold'em are new to it.</p></div>
           <div class="box"><h3>The opponents</h3><p>MARSHAL's evaluation bots: MCTS with 100 simulations for the board games, an equilibrium strategy for each poker game. Hanabi is two copies of the same model playing as a team (scores 0–4).</p></div>
           <div class="box"><h3>How much to trust it</h3><p>8–12 games per bar. A gap of a game or two is noise; only large gaps mean much. More games: <code>bash display/record_eval.sh</code>.</p>${h2h}</div>

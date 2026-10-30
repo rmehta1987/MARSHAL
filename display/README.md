@@ -16,6 +16,9 @@ their built-in bots, and a port of how `roll/agentic/rollout/env_manager.py`
 builds each player's prompt, checks its answer and assigns turn rewards
 (`display/engine.py`). A model that writes past its token limit or breaks the
 `<think>…</think><answer>…</answer>` format forfeits (−11), as in training.
+Check: with the Qwen3-4B tokenizer, the engine's Tic-Tac-Toe prompts are 506
+tokens for X's first move and 628 for O's, the same `tokens/prompt_length` ROLL
+logged in the Midway scale-up run.
 
 ## Replays and results (no installs)
 
@@ -121,7 +124,17 @@ cd ../decrypto
 
 Results land in `../decrypto/results/marshal_vs_qwen3_4b/`. The Decrypto display
 replays them, and this display's **MARSHAL in Decrypto** page counts them per
-pairing (`--decrypto DIR` points it elsewhere; `--decrypto ''` hides the page).
+pairing (`--decrypto DIR` points it elsewhere; `--decrypto ''` hides the page):
+outcomes, answer-format retries per role, how often each model's clues copy
+their keyword's stem (edit → editor) and how often Eve intercepts those rounds.
+
+How often each model's thinking ran into Decrypto's 1024-token budget needs the
+tokenizer, so it is computed once into a committed snapshot, which the page also
+falls back to when the Decrypto repo isn't next to this one:
+
+```shell
+.venv/bin/python -m display.decrypto snapshot     # writes display/data/decrypto_summary.json (uses :8000/tokenize)
+```
 
 ## What the numbers say
 
@@ -176,6 +189,7 @@ start live games), so use it only on a trusted network. The display uses port
 | `games.py` | Find saved games; count Arena results |
 | `runs.py`, `tfevents.py` | Training metrics from SLURM/ROLL logs and TensorBoard files |
 | `decrypto.py`, `decrypto/` | MARSHAL in Decrypto: the experiment config and its summary |
+| `data/decrypto_summary.json` | Snapshot of that summary with the thinking-budget counts |
 | `data/runs.json` | The run ledger, milestones, paper numbers and findings, with sources |
 | `data/metrics/` | Per-step metrics extracted from the three Midway logs |
 | `data/games/` | The recorded games (`*.marshal-game.json`) |

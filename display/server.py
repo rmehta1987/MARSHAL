@@ -22,7 +22,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 from display.decrypto import DEFAULT_RESULTS as DECRYPTO_RESULTS
-from display.decrypto import summarize as summarize_decrypto
+from display.decrypto import load as load_decrypto
 from display.games import GameIndex, arena
 from display.runs import RunIndex
 
@@ -37,7 +37,7 @@ def results_payload(runs, games, decrypto_dir=None):
     records = games.records()
     overview["arena"] = arena(records, source="eval")
     overview["bringup_games"] = [g["id"] for g in games.list() if g.get("source") == "bringup-settings"]
-    overview["decrypto"] = summarize_decrypto(decrypto_dir) if decrypto_dir else None
+    overview["decrypto"] = load_decrypto(decrypto_dir) if decrypto_dir is not None else None
     return overview
 
 
@@ -195,7 +195,7 @@ def main(argv=None):
     Handler.games = GameIndex(roots)
     found = len(Handler.games.scan())
     Handler.runs = RunIndex(".")
-    Handler.decrypto = args.decrypto or None
+    Handler.decrypto = args.decrypto if args.decrypto else None
     Handler.quiet = not args.verbose
     if args.live:
         try:

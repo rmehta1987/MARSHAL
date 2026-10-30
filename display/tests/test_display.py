@@ -289,6 +289,79 @@ class ArenaTest(unittest.TestCase):
             self.assertEqual(index.get("g1")["title"], "tictactoe")
 
 
+class DecryptoSummaryTest(unittest.TestCase):
+    def test_counts_per_pairing(self):
+        from display.decrypto import split_combo, summarize
+        keys = ["qwen3_4b", "marshal_4b"]
+        self.assertEqual(split_combo("marshal_4b_marshal_4b_qwen3_4b_000_000", keys),
+                         ("marshal_4b", "marshal_4b", "qwen3_4b"))
+        with tempfile.TemporaryDirectory() as d:
+            for seed, stats in ((0, {"intercept": 1, "miscomm": 1, "both": 0, "survived": 2, "avg_turns_per_episode": 6.0,
+                                     "avg_encoder_attempts": 0.5, "total_decoder_fails": 1}),
+                                (1, {"intercept": 0, "miscomm": 0, "both": 1, "survived": 3, "avg_turns_per_episode": 8.0})):
+                folder = os.path.join(d, "model_seed0", "marshal_4b_marshal_4b_qwen3_4b_000_000", f"env_seed{seed}")
+                os.makedirs(folder)
+                with open(os.path.join(folder, "stats.json"), "w") as f:
+                    json.dump(stats, f)
+            # an encoder != decoder combo is not a team pairing and is skipped
+            os.makedirs(os.path.join(d, "model_seed0", "qwen3_4b_marshal_4b_qwen3_4b_000_000", "env_seed0"))
+            with open(os.path.join(d, "model_seed0", "qwen3_4b_marshal_4b_qwen3_4b_000_000", "env_seed0", "stats.json"), "w") as f:
+                json.dump({"survived": 4}, f)
+            out = summarize(d)
+        self.assertEqual(len(out["pairings"]), 1)
+        p = out["pairings"][0]
+        self.assertEqual((p["team_name"], p["eve_name"]), ("MARSHAL 4B", "Qwen3-4B"))
+        self.assertEqual((p["episodes"], p["survived"], p["intercepted"], p["miscommunicated"], p["both"]), (8, 5, 1, 1, 1))
+        self.assertEqual(p["avg_rounds"], 7.0)
+        self.assertEqual(p["attempts"]["encoder"], 0.25)
+        self.assertEqual(p["fails"]["decoder"], 1)
+        self.assertIsNone(summarize(os.path.join(ROOT, "no-such-dir")))
+
+    def test_snapshot_fallback_and_cap_counts(self):
+        from display.decrypto import cap_stats, load
+        with tempfile.TemporaryDirectory() as d:
+            ep = os.path.join(d, "res", "model_seed0", "qwen3_4b_qwen3_4b_marshal_4b_000_000", "env_seed0", "episode_0")
+            os.makedirs(ep)
+            for role, n in (("encoder", 1022), ("decoder", 300), ("interceptor", 1022)):
+                with open(os.path.join(ep, f"{role}_history.json"), "w") as f:
+                    json.dump([{"role": "assistant", "content": "<think>\n" + "w " * n + "</think>\nANSWER: {}"}], f)
+            cap = cap_stats(os.path.join(d, "res"), lambda t: len(t.split()))
+            self.assertEqual(cap["qwen3_4b"]["encoder"]["capped"], 1)
+            self.assertEqual(cap["qwen3_4b"]["decoder"]["capped"], 0)
+            self.assertEqual(cap["marshal_4b"]["interceptor"]["cap_rate"], 1.0)
+            snap = os.path.join(d, "snap.json")
+            with open(snap, "w") as f:
+                json.dump({"experiment": "x", "pairings": [{"episodes": 1}], "cap": cap}, f)
+            self.assertEqual(load(os.path.join(d, "missing"), snap)["experiment"], "x")
+            self.assertIsNone(load(os.path.join(d, "missing"), os.path.join(d, "none.json")))
+
+    def test_clue_stems_and_rounds(self):
+        from display.decrypto import clue_stats, episode_rounds, shares_stem
+        self.assertTrue(shares_stem("editor", "edit"))
+        self.assertTrue(shares_stem("generation", "generate"))
+        self.assertFalse(shares_stem("problem", "issue"))
+        self.assertFalse(shares_stem("card", "care"))
+        history = [
+            {"role": "user", "content": "[ENCODER] Turn 1.\nThe four keywords are:\n    {1: edit,\n    2: task,\n"
+                                        "    3: issue,\n    4: device}\n\nThe code is 1-3-4, which ..."},
+            {"role": "assistant", "content": "[ENCODER] ..."},
+            {"role": "user", "content": "[DECODER] The hints given by the Encoder for this turn are:\n"
+                                        "    {a: editor,\n    b: problem,\n    c: tool}\n"},
+            {"role": "assistant", "content": '[DECODER] <think>x</think>\nANSWER: {"guess": "1-3-4"}'},
+            {"role": "assistant", "content": '[INTERCEPTOR] maybe {"guess": "2-3-4"} no\nANSWER: {"guess": "1-3-4"}'},
+        ]
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "combined_history.json")
+            with open(path, "w") as f:
+                json.dump(history, f)
+            rounds = episode_rounds(path)
+        self.assertEqual(rounds[0]["hints"], ["editor", "problem", "tool"])
+        self.assertEqual(rounds[0]["interceptor"], "1-3-4")
+        stats = clue_stats(rounds)
+        self.assertEqual((stats["clues"], stats["stem_clues"], stats["intercepts_with_stem"]), (3, 1, 1))
+        self.assertEqual(stats["examples"], ["edit → editor"])
+
+
 # ------------------------------------------------------------- server & export
 class ServerTest(unittest.TestCase):
     @classmethod

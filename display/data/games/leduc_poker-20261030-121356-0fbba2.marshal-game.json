@@ -1,0 +1,361 @@
+{
+ "format": "marshal-game/1",
+ "id": "leduc_poker-20261030-121356-0fbba2",
+ "game": "leduc_poker",
+ "title": "Leduc Hold'em",
+ "family": "Competitive · imperfect information",
+ "split": "held-out",
+ "seed": 9,
+ "env_options": {
+  "built_in_opponent": "ne",
+  "opponent_player": 0
+ },
+ "settings": {
+  "sequence_length": 32768,
+  "max_new_tokens": 4096,
+  "format_penalty": 0.05
+ },
+ "players": [
+  {
+   "kind": "bot",
+   "name": "Nash-equilibrium bot",
+   "seat": 0,
+   "mark": "P0"
+  },
+  {
+   "kind": "model",
+   "name": "Qwen3-4B",
+   "model": "Qwen/Qwen3-4B",
+   "sampling": {
+    "temperature": 0.6,
+    "top_p": 0.99,
+    "top_k": 100
+   },
+   "note": "The base model MARSHAL starts from.",
+   "seat": 1,
+   "mark": "P1"
+  }
+ ],
+ "prompts": {
+  "1": {
+   "system": "You are an AI agent that makes optimal decisions to win in the game of Leduc Poker.",
+   "user": "GAME RULES:\n1. Leduc poker is a two-player card game. The deck includes only six cards: two pairs of King (K), Queen (Q), and Jack (J).\n2. At the start of each game, both player_0 and player_1 place 1 chip into the pot as a blind ante.\n3. Each player is dealt one private card from the deck, and the remaining cards are set aside unseen.\n4. The game has two betting rounds. When the first round ends, one public card from the remaining cards of the deck is revealed to both players.\n5. The two players take turns acting in the betting rounds, both starting with player_0. A player can choose to:\n    a. <FOLD>: stop betting and the other player wins the pot.\n    b. <CALL>: match the current bet. If no bet has been made in the current round, this is equivalent to checking.\n    c. <RAISE>: first match the current bet and then add `n` chips to the bet, where `n=2` in the first round and `n=4` in the second round. If no bet has been made in the current round, this is equivalent to betting `n` chips.\n6. A maximum of two <RAISE>s are allowed in each round. Each round ends when both players have acted and their bets are equal.\n7. If a player chooses to <FOLD>, the other player wins the pot.\n8. If neither player chooses to <FOLD>, the second round ends with a showdown:\n    a. If a player has a pair (private card = public card), the player wins the pot.\n    b. If neither player has a pair, the player with the higher card (K > Q > J) wins the pot.\n    c. If two players have the same card, the players split the pot.\n\nPLAYER INFORMATION:\n1. You are player_1. You are competing with player_0.\n2. In each of your turns:\n   a. The game state shows your private card, public card (if revealed), and the betting history.\n   b. You need to choose an action based on your cards and the current game state.\n   c. All legal actions for the current turn are provided in the format of `<FOLD>`, `<CALL>`, or `<RAISE>`.\n\nRESPONSE INSTRUCTIONS:\nAlways choose only one action from the legal actions and output `<answer>{your chosen action}</answer>` with no extra text after you finish the thinking process. For example, `<answer><CALL></answer>`. Strictly follow the above format and keep your thinking process concise. Responses that do not follow the format will result in immediate loss of the game.\n\n"
+  }
+ },
+ "source": "eval",
+ "started": "2026-10-30T17:13:56+00:00",
+ "finished": "2026-10-30T17:23:32+00:00",
+ "initial": {
+  "observation": "1. Blind ante: both player_0 and player_1 place 1 chip into the pot.\n2. Deal: your card is Q.",
+  "view": {
+   "type": "leduc",
+   "round": 1,
+   "pot": 2,
+   "money": [
+    99,
+    99
+   ],
+   "public": null,
+   "cards": [
+    "Q",
+    "J"
+   ],
+   "sequences": [
+    [],
+    []
+   ],
+   "bets": [
+    1,
+    1
+   ]
+  }
+ },
+ "moves": [
+  {
+   "n": 1,
+   "player": 0,
+   "by": "bot",
+   "action": "<CALL>",
+   "observation": "1. Blind ante: both player_0 and player_1 place 1 chip into the pot.\n2. Deal: your card is Q.",
+   "legal": [
+    "<CALL>",
+    "<RAISE>"
+   ],
+   "reward": 0.0,
+   "rewards": [
+    0.0,
+    0.0
+   ],
+   "done": false,
+   "view": {
+    "type": "leduc",
+    "round": 1,
+    "pot": 2,
+    "money": [
+     99,
+     99
+    ],
+    "public": null,
+    "cards": [
+     "Q",
+     "J"
+    ],
+    "sequences": [
+     [
+      "Call"
+     ],
+     []
+    ],
+    "bets": [
+     1,
+     1
+    ]
+   }
+  },
+  {
+   "n": 2,
+   "player": 1,
+   "by": "model",
+   "action": "<RAISE>",
+   "observation": "1. Blind ante: both player_0 and player_1 place 1 chip into the pot.\n2. Deal: your card is J.\n4. First betting round:\n    a. Turn 1: player_0 chooses to <CALL> (+0 chips).",
+   "legal": [
+    "<CALL>",
+    "<RAISE>"
+   ],
+   "reward": -0.06683848797250862,
+   "rewards": [
+    0.0,
+    0.0
+   ],
+   "done": false,
+   "view": {
+    "type": "leduc",
+    "round": 1,
+    "pot": 4,
+    "money": [
+     99,
+     97
+    ],
+    "public": null,
+    "cards": [
+     "Q",
+     "J"
+    ],
+    "sequences": [
+     [
+      "Call",
+      "Raise"
+     ],
+     []
+    ],
+    "bets": [
+     1,
+     3
+    ]
+   },
+   "think": "Okay, let's try to figure out what the best move is here. So, I'm player_1, and in the first betting round, player_0 called. My private card is a Jack (J), and I need to decide whether to call or raise. Let's break down the situation.\n\nFirst, the initial blinds: both players put in 1 chip each. So the pot starts at 2 chips. Then, in the first betting round, player_0 called. Since they were the first to act, they might have checked or bet. Wait, the problem says that in the first round, player_0's action was a call. But since there's no bet yet, a call would be equivalent to checking. Wait, no, the rules say that in the first round, if no bet has been made, calling is equivalent to checking. But player_0's action was a call, which in this case, since there was no previous bet, that's checking. So the pot remains at 2 chips. \n\nNow, it's my turn. The legal actions are call or raise. Let me think about the possible scenarios. My card is J. What's the public card? Wait, the public card hasn't been revealed yet. The first betting round is happening before the public card is revealed. Wait, the game rules say that after the first betting round, a public card is revealed. So in this case, the first betting round is ongoing, and after that, the public card is revealed. But right now, during the first betting round, the public card is still unseen. \n\nSo, during the first betting round, both players have their private cards (player_0's is unknown to me, but I know mine is J). The betting is happening before the public card is revealed. So, if I raise here, that would be adding 2 chips (since it's the first round). So if I raise, the bet would go from 0 (since player_0 called, which was equivalent to checking) to 2 chips. Wait, but player_0 called, which in the first round, if there's no bet, that's checking. So the current bet is 0. So if I raise, I would bet 2 chips. Then the round ends when both have acted. \n\nBut what's the purpose of raising here? Let's consider possible strategies. If I raise, I'm betting that I have a strong hand. My card is J. But I don't know player_0's card. However, since there are two pairs of K, Q, J, and each player has one private card. So the deck has two J's, two Q's, two K's. So when the game starts, each player is dealt one private card. The remaining cards are set aside. So, for example, if my card is J, then there's another J in the deck. But player_0's card could be K, Q, J, or another card. Wait, but since the deck has two of each, and each player has one, the remaining cards are the other three cards. Wait, total of six cards: two K, two Q, two J. Each player is dealt one, so there are four cards left. Wait, no, each player gets one, so two cards are dealt, leaving four in the deck. Then, after the first betting round, one public card is revealed from the remaining four. \n\nBut in this case, during the first betting round, the public card hasn't been revealed yet. So, the players are trying to decide based on their private cards and the betting. \n\nIf I raise here, I'm putting in 2 chips. Player_0 has already called, which was a check. So if I raise, the bet becomes 2. Then, player_0 would have to respond. But since the first round ends when both have acted, and the current turn is my turn. Wait, the first betting round is being played. Player_0 acted first, and now it's my turn. So after I act, the round ends. \n\nSo if I call, the bet remains at 0 (since player_0 checked, and I call, which is equivalent to checking). But if I raise, I add 2, making the bet 2. Then the round ends. \n\nBut what's the best action here? Let's think about possible scenarios. If I raise, I'm showing strength. But if player_0 has a higher card, like K or Q, they might have a better hand. But since I have J, and there are two J's in the deck, maybe I can have a pair if the public card is J. But the public card is not revealed yet. \n\nAlternatively, if I call, I'm not betting, and then after the public card is revealed, I can have a better hand. But if I raise, I'm putting more chips in, which could be a way to force the other player to fold if they have a weaker hand. \n\nBut since I don't know player_0's card, I need to make a decision based on probabilities. Let's think: player_0's card could be K, Q, J, or another J. Wait, there are two J's. Since I have one J, there's one J left in the deck. So player_0's card could be J, K, Q, or another J? Wait, no. The deck has two J's. If I have one, then there's one J left. So player_0's card could be K, Q, or J. Because the deck has two K, two Q, two J. So after dealing, there are four cards left. But player_0's card is one of the six. Wait, the initial deal: each player is dealt one card. So the deck starts with six cards. Player_0 has one, player_1 has one, so four remain. So player_0's card is one of the six, but since I have J, player_0's card is one of the remaining five cards. Wait, no. The deck has six cards. Each player is dealt one, so two are dealt, leaving four. So player_0's card is one of the six, but since I have J, player_0's card could be any of the remaining five cards. But since there are two J's, if I have one, there's one J left. So player_0 could have J, K, Q, or another card. \n\nBut in this case, the first betting round is happening. If I raise, I'm putting in 2 chips. If player_0 has a higher card, like K or Q, they might have a stronger hand. But if they have J, then they might have a pair if the public card is J. But the public card is not revealed yet. \n\nAlternatively, if I call, I'm not betting, and then after the public card is revealed, I can have a pair if the public card is J. But if the public card is K or Q, then I have J, which is lower. \n\nSo, the decision here is whether to raise or call. If I raise, I'm betting that I have a strong hand. If I call, I'm not betting, but then I can see the public card. \n\nBut since the public card is not revealed yet, maybe it's better to raise. Because if I raise, I'm showing strength, and if player_0 has a weaker hand, they might fold. But if they have a stronger hand, they might call. \n\nAlternatively, maybe I should call. Because if the public card is J, then I have a pair. If it's K or Q, then I have J, which is lower. But if I call, I can see the public card. \n\nBut in this case, since the first betting round is happening, and after that the public card is revealed, the decision depends on the possible outcomes. \n\nAlternatively, maybe I should raise. Because if I raise, I'm putting more chips in, which could be a way to get player_0 to fold. But I don't know their hand. \n\nBut given that I have J, and the public card is not revealed yet, maybe the best action is to raise. Because if the public card is J, then I have a pair. If the public card is K or Q, then I have J, which is lower. But if I raise, I'm showing that I have a strong hand. \n\nAlternatively, maybe I should call. Because if the public card is J, then I have a pair. But if it's K or Q, I have J, which is lower. So, in that case, if I call, I can have a better hand if the public card is J. \n\nBut since the public card is not revealed yet, maybe I should raise. Because if I raise, I'm putting more chips in, which might be a way to get the other player to fold. \n\nBut the problem is that I don't know what player_0 has. If player_0 has a K or Q, they might have a stronger hand. But if they have J, then they have a pair if the public card is J. \n\nAlternatively, maybe the best play is to call. Because if I call, I'm not risking more chips, and then after the public card is revealed, I can decide based on that. \n\nBut in the first betting round, the public card is not yet revealed. So the players are trying to bet based on their private cards. \n\nSo, given that I have J, and player_0 called, which was a check, I can choose to call or raise. \n\nIf I call, the bet remains at 0. Then, after the public card is revealed, the second betting round starts. \n\nIf I raise, the bet becomes 2. Then, the round ends. \n\nBut since the public card is not yet revealed, maybe it's better to raise. Because if I raise, I'm showing that I have a strong hand, and if player_0 has a weaker hand, they might fold. \n\nAlternatively, if I call, I can see the public card and then decide in the second round. \n\nBut given that the first round is about betting, and the public card is revealed after that, maybe the best action is to raise. \n\nBut I'm not sure. Maybe I should think about the possible hands. \n\nIf I raise, and player_0 has a K, then they might have a stronger hand. But if they have J, then they have a pair if the public card is J. \n\nAlternatively, if I call, and the public card is J, then I have a pair. If it's K, then I have J, which is lower. \n\nBut since I don't know what player_0's card is, maybe the best action is to call. Because if I raise, I'm risking more chips, but if the public card is J, I can have a pair. \n\nBut I'm not sure. Maybe the answer is to raise. \n\nAlternatively, maybe I should call. \n\nHmm. This is a bit tricky. Let me think again. \n\nIn the first betting round, player_0 called. So they might have a weak hand, or they might have a strong hand. If they called, maybe they have a weak hand and are just checking. \n\nBut since I have J, if I raise, I'm showing strength. If player_0 has a K or Q, they might have a stronger hand, but they might not have a pair yet. \n\nAlternatively, if I call, I'm not betting, and then after the public card is revealed, I can decide. \n\nBut the problem is that the public card is not revealed yet. So maybe the best play is to raise. \n\nBut I'm not sure. Maybe the answer is to raise. \n\nSo, given the options, I think the best action is to raise. So the answer would be <RAISE>.",
+   "answer": "<RAISE>",
+   "raw": "<think>\nOkay, let's try to figure out what the best move is here. So, I'm player_1, and in the first betting round, player_0 called. My private card is a Jack (J), and I need to decide whether to call or raise. Let's break down the situation.\n\nFirst, the initial blinds: both players put in 1 chip each. So the pot starts at 2 chips. Then, in the first betting round, player_0 called. Since they were the first to act, they might have checked or bet. Wait, the problem says that in the first round, player_0's action was a call. But since there's no bet yet, a call would be equivalent to checking. Wait, no, the rules say that in the first round, if no bet has been made, calling is equivalent to checking. But player_0's action was a call, which in this case, since there was no previous bet, that's checking. So the pot remains at 2 chips. \n\nNow, it's my turn. The legal actions are call or raise. Let me think about the possible scenarios. My card is J. What's the public card? Wait, the public card hasn't been revealed yet. The first betting round is happening before the public card is revealed. Wait, the game rules say that after the first betting round, a public card is revealed. So in this case, the first betting round is ongoing, and after that, the public card is revealed. But right now, during the first betting round, the public card is still unseen. \n\nSo, during the first betting round, both players have their private cards (player_0's is unknown to me, but I know mine is J). The betting is happening before the public card is revealed. So, if I raise here, that would be adding 2 chips (since it's the first round). So if I raise, the bet would go from 0 (since player_0 called, which was equivalent to checking) to 2 chips. Wait, but player_0 called, which in the first round, if there's no bet, that's checking. So the current bet is 0. So if I raise, I would bet 2 chips. Then the round ends when both have acted. \n\nBut what's the purpose of raising here? Let's consider possible strategies. If I raise, I'm betting that I have a strong hand. My card is J. But I don't know player_0's card. However, since there are two pairs of K, Q, J, and each player has one private card. So the deck has two J's, two Q's, two K's. So when the game starts, each player is dealt one private card. The remaining cards are set aside. So, for example, if my card is J, then there's another J in the deck. But player_0's card could be K, Q, J, or another card. Wait, but since the deck has two of each, and each player has one, the remaining cards are the other three cards. Wait, total of six cards: two K, two Q, two J. Each player is dealt one, so there are four cards left. Wait, no, each player gets one, so two cards are dealt, leaving four in the deck. Then, after the first betting round, one public card is revealed from the remaining four. \n\nBut in this case, during the first betting round, the public card hasn't been revealed yet. So, the players are trying to decide based on their private cards and the betting. \n\nIf I raise here, I'm putting in 2 chips. Player_0 has already called, which was a check. So if I raise, the bet becomes 2. Then, player_0 would have to respond. But since the first round ends when both have acted, and the current turn is my turn. Wait, the first betting round is being played. Player_0 acted first, and now it's my turn. So after I act, the round ends. \n\nSo if I call, the bet remains at 0 (since player_0 checked, and I call, which is equivalent to checking). But if I raise, I add 2, making the bet 2. Then the round ends. \n\nBut what's the best action here? Let's think about possible scenarios. If I raise, I'm showing strength. But if player_0 has a higher card, like K or Q, they might have a better hand. But since I have J, and there are two J's in the deck, maybe I can have a pair if the public card is J. But the public card is not revealed yet. \n\nAlternatively, if I call, I'm not betting, and then after the public card is revealed, I can have a better hand. But if I raise, I'm putting more chips in, which could be a way to force the other player to fold if they have a weaker hand. \n\nBut since I don't know player_0's card, I need to make a decision based on probabilities. Let's think: player_0's card could be K, Q, J, or another J. Wait, there are two J's. Since I have one J, there's one J left in the deck. So player_0's card could be J, K, Q, or another J? Wait, no. The deck has two J's. If I have one, then there's one J left. So player_0's card could be K, Q, or J. Because the deck has two K, two Q, two J. So after dealing, there are four cards left. But player_0's card is one of the six. Wait, the initial deal: each player is dealt one card. So the deck starts with six cards. Player_0 has one, player_1 has one, so four remain. So player_0's card is one of the six, but since I have J, player_0's card is one of the remaining five cards. Wait, no. The deck has six cards. Each player is dealt one, so two are dealt, leaving four. So player_0's card is one of the six, but since I have J, player_0's card could be any of the remaining five cards. But since there are two J's, if I have one, there's one J left. So player_0 could have J, K, Q, or another card. \n\nBut in this case, the first betting round is happening. If I raise, I'm putting in 2 chips. If player_0 has a higher card, like K or Q, they might have a stronger hand. But if they have J, then they might have a pair if the public card is J. But the public card is not revealed yet. \n\nAlternatively, if I call, I'm not betting, and then after the public card is revealed, I can have a pair if the public card is J. But if the public card is K or Q, then I have J, which is lower. \n\nSo, the decision here is whether to raise or call. If I raise, I'm betting that I have a strong hand. If I call, I'm not betting, but then I can see the public card. \n\nBut since the public card is not revealed yet, maybe it's better to raise. Because if I raise, I'm showing strength, and if player_0 has a weaker hand, they might fold. But if they have a stronger hand, they might call. \n\nAlternatively, maybe I should call. Because if the public card is J, then I have a pair. If it's K or Q, then I have J, which is lower. But if I call, I can see the public card. \n\nBut in this case, since the first betting round is happening, and after that the public card is revealed, the decision depends on the possible outcomes. \n\nAlternatively, maybe I should raise. Because if I raise, I'm putting more chips in, which could be a way to get player_0 to fold. But I don't know their hand. \n\nBut given that I have J, and the public card is not revealed yet, maybe the best action is to raise. Because if the public card is J, then I have a pair. If the public card is K or Q, then I have J, which is lower. But if I raise, I'm showing that I have a strong hand. \n\nAlternatively, maybe I should call. Because if the public card is J, then I have a pair. But if it's K or Q, I have J, which is lower. So, in that case, if I call, I can have a better hand if the public card is J. \n\nBut since the public card is not revealed yet, maybe I should raise. Because if I raise, I'm putting more chips in, which might be a way to get the other player to fold. \n\nBut the problem is that I don't know what player_0 has. If player_0 has a K or Q, they might have a stronger hand. But if they have J, then they have a pair if the public card is J. \n\nAlternatively, maybe the best play is to call. Because if I call, I'm not risking more chips, and then after the public card is revealed, I can decide based on that. \n\nBut in the first betting round, the public card is not yet revealed. So the players are trying to bet based on their private cards. \n\nSo, given that I have J, and player_0 called, which was a check, I can choose to call or raise. \n\nIf I call, the bet remains at 0. Then, after the public card is revealed, the second betting round starts. \n\nIf I raise, the bet becomes 2. Then, the round ends. \n\nBut since the public card is not yet revealed, maybe it's better to raise. Because if I raise, I'm showing that I have a strong hand, and if player_0 has a weaker hand, they might fold. \n\nAlternatively, if I call, I can see the public card and then decide in the second round. \n\nBut given that the first round is about betting, and the public card is revealed after that, maybe the best action is to raise. \n\nBut I'm not sure. Maybe I should think about the possible hands. \n\nIf I raise, and player_0 has a K, then they might have a stronger hand. But if they have J, then they have a pair if the public card is J. \n\nAlternatively, if I call, and the public card is J, then I have a pair. If it's K, then I have J, which is lower. \n\nBut since I don't know what player_0's card is, maybe the best action is to call. Because if I raise, I'm risking more chips, but if the public card is J, I can have a pair. \n\nBut I'm not sure. Maybe the answer is to raise. \n\nAlternatively, maybe I should call. \n\nHmm. This is a bit tricky. Let me think again. \n\nIn the first betting round, player_0 called. So they might have a weak hand, or they might have a strong hand. If they called, maybe they have a weak hand and are just checking. \n\nBut since I have J, if I raise, I'm showing strength. If player_0 has a K or Q, they might have a stronger hand, but they might not have a pair yet. \n\nAlternatively, if I call, I'm not betting, and then after the public card is revealed, I can decide. \n\nBut the problem is that the public card is not revealed yet. So maybe the best play is to raise. \n\nBut I'm not sure. Maybe the answer is to raise. \n\nSo, given the options, I think the best action is to raise. So the answer would be <RAISE>.\n</think>\n\n<answer><RAISE></answer>",
+   "tokens": 2524,
+   "prompt_tokens": 752,
+   "seconds": 318.8,
+   "valid": true,
+   "forfeit": null,
+   "prompt_tail": "Information of Turn-1:\n\nThis is the other player's turn. The game state for this turn is not available to you. The chosen action of the other player for this turn is provided below.\n\nCHOSEN ACTION:\n<CALL>\nInformation of Turn-2:\n\nThis is your turn. The game state and legal actions for this turn are provided below. Please choose your action and strictly follow the given output format in the response instructions.\n\nGAME STATE:\n1. Blind ante: both player_0 and player_1 place 1 chip into the pot.\n2. Deal: your card is J.\n4. First betting round:\n    a. Turn 1: player_0 chooses to <CALL> (+0 chips).\n\nLEGAL ACTIONS:\n<CALL>, <RAISE>.\n\n"
+  },
+  {
+   "n": 3,
+   "player": 0,
+   "by": "bot",
+   "action": "<CALL>",
+   "observation": "1. Blind ante: both player_0 and player_1 place 1 chip into the pot.\n2. Deal: your card is Q.\n4. First betting round:\n    a. Turn 1: player_0 chooses to <CALL> (+0 chips).\n    b. Turn 2: player_1 chooses to <RAISE> (+2 chips).",
+   "legal": [
+    "<FOLD>",
+    "<CALL>",
+    "<RAISE>"
+   ],
+   "reward": 0.0,
+   "rewards": [
+    0.0,
+    0.0
+   ],
+   "done": false,
+   "view": {
+    "type": "leduc",
+    "round": 2,
+    "pot": 6,
+    "money": [
+     97,
+     97
+    ],
+    "public": "Q",
+    "cards": [
+     "Q",
+     "J"
+    ],
+    "sequences": [
+     [
+      "Call",
+      "Raise",
+      "Call"
+     ],
+     []
+    ],
+    "bets": [
+     3,
+     3
+    ]
+   }
+  },
+  {
+   "n": 4,
+   "player": 0,
+   "by": "bot",
+   "action": "<RAISE>",
+   "observation": "1. Blind ante: both player_0 and player_1 place 1 chip into the pot.\n2. Deal: your card is Q.\n3. Public card revealed: Q.\n4. First betting round:\n    a. Turn 1: player_0 chooses to <CALL> (+0 chips).\n    b. Turn 2: player_1 chooses to <RAISE> (+2 chips).\n    c. Turn 3: player_0 chooses to <CALL> (+2 chips).",
+   "legal": [
+    "<CALL>",
+    "<RAISE>"
+   ],
+   "reward": 0.0,
+   "rewards": [
+    0.0,
+    0.0
+   ],
+   "done": false,
+   "view": {
+    "type": "leduc",
+    "round": 2,
+    "pot": 10,
+    "money": [
+     93,
+     97
+    ],
+    "public": "Q",
+    "cards": [
+     "Q",
+     "J"
+    ],
+    "sequences": [
+     [
+      "Call",
+      "Raise",
+      "Call"
+     ],
+     [
+      "Raise"
+     ]
+    ],
+    "bets": [
+     7,
+     3
+    ]
+   }
+  },
+  {
+   "n": 5,
+   "player": 1,
+   "by": "model",
+   "action": "<CALL>",
+   "observation": "1. Blind ante: both player_0 and player_1 place 1 chip into the pot.\n2. Deal: your card is J.\n3. Public card revealed: Q.\n4. First betting round:\n    a. Turn 1: player_0 chooses to <CALL> (+0 chips).\n    b. Turn 2: player_1 chooses to <RAISE> (+2 chips).\n    c. Turn 3: player_0 chooses to <CALL> (+2 chips).\n5. Second betting round:\n    a. Turn 1: player_0 chooses to <RAISE> (+4 chips).",
+   "legal": [
+    "<FOLD>",
+    "<CALL>",
+    "<RAISE>"
+   ],
+   "reward": -6.964236622484045,
+   "rewards": [
+    7.0,
+    -7.0
+   ],
+   "done": true,
+   "view": {
+    "type": "leduc",
+    "round": 2,
+    "pot": 14,
+    "money": [
+     107,
+     93
+    ],
+    "public": "Q",
+    "cards": [
+     "Q",
+     "J"
+    ],
+    "sequences": [
+     [
+      "Call",
+      "Raise",
+      "Call"
+     ],
+     [
+      "Raise",
+      "Call"
+     ]
+    ],
+    "bets": [
+     7,
+     7
+    ],
+    "returns": [
+     7.0,
+     -7.0
+    ]
+   },
+   "think": "Okay, let's try to figure out what to do here. So, I'm player_1, and it's my turn in the second betting round. Let me go through the game state step by step.\n\nFirst, the blind ante: both players put in 1 chip each. So the pot starts at 2 chips. Then, the deal: my private card is J. The public card revealed is Q. So now, the public card is Q, which is higher than my J. But wait, in the first betting round, player_0 called, then I raised, and they called again. Now, it's the second betting round, and player_0 has raised again. \n\nLet me recap the betting so far. In the first round, player_0 called (so they matched the initial 0 chips, which was a check). Then I raised by 2 chips, making the bet 2. Player_0 then called, matching the 2 chips. So after the first round, the pot has 2 (initial) + 2 (from my raise) + 2 (player_0's call) = 6 chips? Wait, no. The initial blinds are 1 each, so pot starts at 2. Then in the first round, player_0 called (so no change), then I raised 2, so pot increases by 2 to 4. Then player_0 called again, adding 2 more, making the pot 6. Now, the second betting round starts. \n\nIn the second round, the current bet is 2 (from the first round's raise). Wait, no. Wait, the first round ended with player_0 calling after my raise. So the first round's total bet is 2 (from my raise) and player_0 called, so the total in the pot from the first round is 1 (blind) + 1 (blind) + 2 (my raise) + 2 (player_0's call) = 6? Or maybe the betting is tracked per round. Let me think again.\n\nThe first betting round: initial blinds are 1 each, so pot is 2. Then, player_0's first action is a call, which is equivalent to checking (so no addition). Then I raise 2, so the pot increases by 2, making it 4. Then player_0 calls, adding 2 more, making the pot 6. So after the first round, the pot is 6. Now, the second betting round starts. The current bet in the second round is 2 (the amount that was raised in the first round?), or is it the total? Wait, the second round is a new betting round. The initial bet for the second round is whatever was the last bet in the first round. So when the second round starts, the current bet is 2 (from the first round's raise). So player_0 has raised in the second round by 4 chips (as per the game state: Turn 1: player_0 chooses to <RAISE> (+4 chips)). So the current bet in the second round is 2 (from the first round's raise) plus 4 (player_0's raise) = 6? Or is the second round starting with the previous bet?\n\nWait, the rules say that each round ends when both players have acted and their bets are equal. So in the first round, after player_0 called, the bet was 2 (from my raise). Then, in the second round, the current bet is 2 (the last bet from the first round). So when player_0 raises in the second round, they add 4, making the total bet 2 + 4 = 6. Now, it's my turn. The legal actions are FOLD, CALL, RAISE. \n\nSo the current bet in the second round is 6 (since player_0 raised 4 on top of the 2 from the first round). Wait, no. Let me clarify. The second betting round starts after the first round ends. The first round ended with the bet being 2 (from my raise) and player_0 called. So the second round starts with the current bet being 2. Then, player_0 raises 4, making the total bet 2 + 4 = 6. Now, it's my turn. The current bet is 6. \n\nSo I need to decide whether to fold, call, or raise. Let's think about my hand. My private card is J, and the public card is Q. So, if I have a pair, that would be if my private card matches the public card. But my card is J, and the public is Q. So no pair. So I don't have a pair. \n\nPlayer_0's private card is unknown to me. But in the first round, they called after I raised. So they might have a weak hand, or they might have a strong hand. But in the second round, they raised again. So maybe they have a strong hand. \n\nBut since the public card is Q, and I have J, if player_0 has a Q, then they have a pair (public Q and their Q). If they have K, then they have a higher card than me. But if they have J, then they have a pair if the public card is Q? No, the public card is Q. So if player_0 has J, then they don't have a pair. \n\nSo, my hand is J, public is Q. So I have J, which is lower than Q. So if player_0 has a Q, they have a pair (public Q and their Q), which would beat me. If they have K, they have a higher card than me. If they have J, then they have J, which is same as me, but since the public card is Q, they don't have a pair. \n\nBut since the public card is Q, and I have J, I don't have a pair. So if player_0 has a Q, they have a pair. If they have K, they have a higher card. If they have J, they have J, same as me. \n\nBut how do I know what player_0 has? Well, in the first round, they called after I raised. So maybe they have a weak hand. But in the second round, they raised again. So maybe they have a strong hand. \n\nBut since the public card is Q, and I have J, I need to decide whether to call, raise, or fold. \n\nIf I call, I match the current bet of 6. If I raise, I add 4 (since it's the second round), making it 6 + 4 = 10. But the maximum allowed raises in each round is two. Wait, the rules say that a maximum of two raises are allowed in each round. So in the second round, player_0 already raised once (adding 4). So if I raise again, that's the second raise. \n\nBut I need to check if that's allowed. The rules say that each round ends when both players have acted and their bets are equal. So if I raise, then player_0 would have to respond. But since it's my turn, after I raise, player_0 would act. But the game state says that in the second round, player_0 has already raised. Wait, the game state says that in the second betting round, Turn 1: player_0 chooses to <RAISE> (+4 chips). So that's their action. Now it's my turn. \n\nSo the current bet is 6 (from player_0's raise). I can choose to fold, call, or raise. \n\nIf I fold, I lose the pot. If I call, I match the 6, so the pot becomes 6 + 6 = 12. If I raise, I add 4, making it 6 + 4 = 10. \n\nBut what's the best action here? Since I don't have a pair, and the public card is Q, I need to see if I can win. \n\nIf I call, then the round ends, and we go to showdown. My hand is J, public is Q. Player_0's hand is unknown. But if they have a Q, they have a pair. If they have K, they have a higher card. If they have J, then we split the pot. \n\nAlternatively, if I raise, and player_0 calls, then the pot would be 10. Then, showdown. But if player_0 has a Q, they have a pair. If they have K, they have higher. If they have J, split. \n\nBut since I don't know what player_0 has, maybe the best action is to call. Because if I call, I can see the showdown. If I raise, I'm risking more chips, but maybe player_0 has a weaker hand. \n\nAlternatively, since player_0 raised in the second round, maybe they have a strong hand. So if I call, I might lose. But if I raise, maybe they have to call, and then I can have a better hand. \n\nBut I don't have a pair. So if player_0 has a Q, they have a pair. If they have K, they have higher. If they have J, same as me. \n\nSo, if I call, the pot is 6, and then showdown. If I raise, the pot is 10, and then showdown. \n\nBut since I don't have a pair, and the public card is Q, I think the best action is to call. Because if I call, I can see the showdown. If I raise, I'm risking more chips but might not have a better hand. \n\nSo the answer is to call. \n\nWait, but the legal actions are FOLD, CALL, RAISE. So I can choose to call. So the answer is <CALL>.",
+   "answer": "<CALL>",
+   "raw": "<think>\nOkay, let's try to figure out what to do here. So, I'm player_1, and it's my turn in the second betting round. Let me go through the game state step by step.\n\nFirst, the blind ante: both players put in 1 chip each. So the pot starts at 2 chips. Then, the deal: my private card is J. The public card revealed is Q. So now, the public card is Q, which is higher than my J. But wait, in the first betting round, player_0 called, then I raised, and they called again. Now, it's the second betting round, and player_0 has raised again. \n\nLet me recap the betting so far. In the first round, player_0 called (so they matched the initial 0 chips, which was a check). Then I raised by 2 chips, making the bet 2. Player_0 then called, matching the 2 chips. So after the first round, the pot has 2 (initial) + 2 (from my raise) + 2 (player_0's call) = 6 chips? Wait, no. The initial blinds are 1 each, so pot starts at 2. Then in the first round, player_0 called (so no change), then I raised 2, so pot increases by 2 to 4. Then player_0 called again, adding 2 more, making the pot 6. Now, the second betting round starts. \n\nIn the second round, the current bet is 2 (from the first round's raise). Wait, no. Wait, the first round ended with player_0 calling after my raise. So the first round's total bet is 2 (from my raise) and player_0 called, so the total in the pot from the first round is 1 (blind) + 1 (blind) + 2 (my raise) + 2 (player_0's call) = 6? Or maybe the betting is tracked per round. Let me think again.\n\nThe first betting round: initial blinds are 1 each, so pot is 2. Then, player_0's first action is a call, which is equivalent to checking (so no addition). Then I raise 2, so the pot increases by 2, making it 4. Then player_0 calls, adding 2 more, making the pot 6. So after the first round, the pot is 6. Now, the second betting round starts. The current bet in the second round is 2 (the amount that was raised in the first round?), or is it the total? Wait, the second round is a new betting round. The initial bet for the second round is whatever was the last bet in the first round. So when the second round starts, the current bet is 2 (from the first round's raise). So player_0 has raised in the second round by 4 chips (as per the game state: Turn 1: player_0 chooses to <RAISE> (+4 chips)). So the current bet in the second round is 2 (from the first round's raise) plus 4 (player_0's raise) = 6? Or is the second round starting with the previous bet?\n\nWait, the rules say that each round ends when both players have acted and their bets are equal. So in the first round, after player_0 called, the bet was 2 (from my raise). Then, in the second round, the current bet is 2 (the last bet from the first round). So when player_0 raises in the second round, they add 4, making the total bet 2 + 4 = 6. Now, it's my turn. The legal actions are FOLD, CALL, RAISE. \n\nSo the current bet in the second round is 6 (since player_0 raised 4 on top of the 2 from the first round). Wait, no. Let me clarify. The second betting round starts after the first round ends. The first round ended with the bet being 2 (from my raise) and player_0 called. So the second round starts with the current bet being 2. Then, player_0 raises 4, making the total bet 2 + 4 = 6. Now, it's my turn. The current bet is 6. \n\nSo I need to decide whether to fold, call, or raise. Let's think about my hand. My private card is J, and the public card is Q. So, if I have a pair, that would be if my private card matches the public card. But my card is J, and the public is Q. So no pair. So I don't have a pair. \n\nPlayer_0's private card is unknown to me. But in the first round, they called after I raised. So they might have a weak hand, or they might have a strong hand. But in the second round, they raised again. So maybe they have a strong hand. \n\nBut since the public card is Q, and I have J, if player_0 has a Q, then they have a pair (public Q and their Q). If they have K, then they have a higher card than me. But if they have J, then they have a pair if the public card is Q? No, the public card is Q. So if player_0 has J, then they don't have a pair. \n\nSo, my hand is J, public is Q. So I have J, which is lower than Q. So if player_0 has a Q, they have a pair (public Q and their Q), which would beat me. If they have K, they have a higher card than me. If they have J, then they have J, which is same as me, but since the public card is Q, they don't have a pair. \n\nBut since the public card is Q, and I have J, I don't have a pair. So if player_0 has a Q, they have a pair. If they have K, they have a higher card. If they have J, they have J, same as me. \n\nBut how do I know what player_0 has? Well, in the first round, they called after I raised. So maybe they have a weak hand. But in the second round, they raised again. So maybe they have a strong hand. \n\nBut since the public card is Q, and I have J, I need to decide whether to call, raise, or fold. \n\nIf I call, I match the current bet of 6. If I raise, I add 4 (since it's the second round), making it 6 + 4 = 10. But the maximum allowed raises in each round is two. Wait, the rules say that a maximum of two raises are allowed in each round. So in the second round, player_0 already raised once (adding 4). So if I raise again, that's the second raise. \n\nBut I need to check if that's allowed. The rules say that each round ends when both players have acted and their bets are equal. So if I raise, then player_0 would have to respond. But since it's my turn, after I raise, player_0 would act. But the game state says that in the second round, player_0 has already raised. Wait, the game state says that in the second betting round, Turn 1: player_0 chooses to <RAISE> (+4 chips). So that's their action. Now it's my turn. \n\nSo the current bet is 6 (from player_0's raise). I can choose to fold, call, or raise. \n\nIf I fold, I lose the pot. If I call, I match the 6, so the pot becomes 6 + 6 = 12. If I raise, I add 4, making it 6 + 4 = 10. \n\nBut what's the best action here? Since I don't have a pair, and the public card is Q, I need to see if I can win. \n\nIf I call, then the round ends, and we go to showdown. My hand is J, public is Q. Player_0's hand is unknown. But if they have a Q, they have a pair. If they have K, they have a higher card. If they have J, then we split the pot. \n\nAlternatively, if I raise, and player_0 calls, then the pot would be 10. Then, showdown. But if player_0 has a Q, they have a pair. If they have K, they have higher. If they have J, split. \n\nBut since I don't know what player_0 has, maybe the best action is to call. Because if I call, I can see the showdown. If I raise, I'm risking more chips, but maybe player_0 has a weaker hand. \n\nAlternatively, since player_0 raised in the second round, maybe they have a strong hand. So if I call, I might lose. But if I raise, maybe they have to call, and then I can have a better hand. \n\nBut I don't have a pair. So if player_0 has a Q, they have a pair. If they have K, they have higher. If they have J, same as me. \n\nSo, if I call, the pot is 6, and then showdown. If I raise, the pot is 10, and then showdown. \n\nBut since I don't have a pair, and the public card is Q, I think the best action is to call. Because if I call, I can see the showdown. If I raise, I'm risking more chips but might not have a better hand. \n\nSo the answer is to call. \n\nWait, but the legal actions are FOLD, CALL, RAISE. So I can choose to call. So the answer is <CALL>.\n</think>\n\n<answer><CALL></answer>",
+   "tokens": 2106,
+   "prompt_tokens": 3564,
+   "seconds": 257.3,
+   "valid": true,
+   "forfeit": null,
+   "prompt_tail": "Information of Turn-3:\n\nThis is the other player's turn. The game state for this turn is not available to you. The chosen action of the other player for this turn is provided below.\n\nCHOSEN ACTION:\n<CALL>\nInformation of Turn-4:\n\nThis is the other player's turn. The game state for this turn is not available to you. The chosen action of the other player for this turn is provided below.\n\nCHOSEN ACTION:\n<RAISE>\nInformation of Turn-5:\n\nThis is your turn. The game state and legal actions for this turn are provided below. Please choose your action and strictly follow the given output format in the response instructions.\n\nGAME STATE:\n1. Blind ante: both player_0 and player_1 place 1 chip into the pot.\n2. Deal: your card is J.\n3. Public card revealed: Q.\n4. First betting round:\n    a. Turn 1: player_0 chooses to <CALL> (+0 chips).\n    b. Turn 2: player_1 chooses to <RAISE> (+2 chips).\n    c. Turn 3: player_0 chooses to <CALL> (+2 chips).\n5. Second betting round:\n    a. Turn 1: player_0 chooses to <RAISE> (+4 chips).\n\nLEGAL ACTIONS:\n<FOLD>, <CALL>, <RAISE>.\n\n"
+  }
+ ],
+ "result": {
+  "info": {
+   "card_0": "Q",
+   "card_1": "J",
+   "public_card": "Q",
+   "player_0_return": 7.0,
+   "player_1_return": -7.0,
+   "winner": 0,
+   "player_0_lose_for_wrong_format": 0,
+   "player_1_lose_for_wrong_format": 0,
+   "player_0_lose_for_overlong_response": 0,
+   "player_1_lose_for_overlong_response": 0,
+   "player_0_lose_for_overlong_sequence": 0,
+   "player_1_lose_for_overlong_sequence": 0,
+   "player_0_success": true,
+   "player_1_success": false,
+   "draw": false,
+   "total_pot": 0.0,
+   "player_0_bet": -7.0,
+   "player_1_bet": 7.0
+  },
+  "truncated": false,
+  "winner": 0,
+  "draw": false,
+  "returns": [
+   7.0,
+   -7.0
+  ],
+  "reason": "end"
+ },
+ "turn_rewards": {
+  "0": [
+   0.0,
+   0.0,
+   7.0
+  ],
+  "1": [
+   -0.0668,
+   -6.9642
+  ]
+ },
+ "seat_keys": [
+  "bot",
+  "qwen3-4b"
+ ]
+}

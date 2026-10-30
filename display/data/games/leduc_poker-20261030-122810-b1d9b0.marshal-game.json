@@ -1,0 +1,214 @@
+{
+ "format": "marshal-game/1",
+ "id": "leduc_poker-20261030-122810-b1d9b0",
+ "game": "leduc_poker",
+ "title": "Leduc Hold'em",
+ "family": "Competitive · imperfect information",
+ "split": "held-out",
+ "seed": 8,
+ "env_options": {
+  "built_in_opponent": "ne",
+  "opponent_player": 1
+ },
+ "settings": {
+  "sequence_length": 32768,
+  "max_new_tokens": 4096,
+  "format_penalty": 0.05
+ },
+ "players": [
+  {
+   "kind": "model",
+   "name": "MARSHAL 4B",
+   "model": "nics-efc/MARSHAL-Generalist-Qwen3-4B",
+   "sampling": {
+    "temperature": 0.6,
+    "top_p": 0.99,
+    "top_k": 100
+   },
+   "note": "Official MARSHAL Generalist checkpoint (Qwen3-4B after self-play on Tic-Tac-Toe, Kuhn Poker and Mini Hanabi).",
+   "seat": 0,
+   "mark": "P0"
+  },
+  {
+   "kind": "bot",
+   "name": "Nash-equilibrium bot",
+   "seat": 1,
+   "mark": "P1"
+  }
+ ],
+ "prompts": {
+  "0": {
+   "system": "You are an AI agent that makes optimal decisions to win in the game of Leduc Poker.",
+   "user": "GAME RULES:\n1. Leduc poker is a two-player card game. The deck includes only six cards: two pairs of King (K), Queen (Q), and Jack (J).\n2. At the start of each game, both player_0 and player_1 place 1 chip into the pot as a blind ante.\n3. Each player is dealt one private card from the deck, and the remaining cards are set aside unseen.\n4. The game has two betting rounds. When the first round ends, one public card from the remaining cards of the deck is revealed to both players.\n5. The two players take turns acting in the betting rounds, both starting with player_0. A player can choose to:\n    a. <FOLD>: stop betting and the other player wins the pot.\n    b. <CALL>: match the current bet. If no bet has been made in the current round, this is equivalent to checking.\n    c. <RAISE>: first match the current bet and then add `n` chips to the bet, where `n=2` in the first round and `n=4` in the second round. If no bet has been made in the current round, this is equivalent to betting `n` chips.\n6. A maximum of two <RAISE>s are allowed in each round. Each round ends when both players have acted and their bets are equal.\n7. If a player chooses to <FOLD>, the other player wins the pot.\n8. If neither player chooses to <FOLD>, the second round ends with a showdown:\n    a. If a player has a pair (private card = public card), the player wins the pot.\n    b. If neither player has a pair, the player with the higher card (K > Q > J) wins the pot.\n    c. If two players have the same card, the players split the pot.\n\nPLAYER INFORMATION:\n1. You are player_0. You are competing with player_1.\n2. In each of your turns:\n   a. The game state shows your private card, public card (if revealed), and the betting history.\n   b. You need to choose an action based on your cards and the current game state.\n   c. All legal actions for the current turn are provided in the format of `<FOLD>`, `<CALL>`, or `<RAISE>`.\n\nRESPONSE INSTRUCTIONS:\nAlways choose only one action from the legal actions and output `<answer>{your chosen action}</answer>` with no extra text after you finish the thinking process. For example, `<answer><CALL></answer>`. Strictly follow the above format and keep your thinking process concise. Responses that do not follow the format will result in immediate loss of the game.\n\n"
+  }
+ },
+ "source": "eval",
+ "started": "2026-10-30T17:28:10+00:00",
+ "finished": "2026-10-30T17:32:18+00:00",
+ "initial": {
+  "observation": "1. Blind ante: both player_0 and player_1 place 1 chip into the pot.\n2. Deal: your card is Q.",
+  "view": {
+   "type": "leduc",
+   "round": 1,
+   "pot": 2,
+   "money": [
+    99,
+    99
+   ],
+   "public": null,
+   "cards": [
+    "Q",
+    "J"
+   ],
+   "sequences": [
+    [],
+    []
+   ],
+   "bets": [
+    1,
+    1
+   ]
+  }
+ },
+ "moves": [
+  {
+   "n": 1,
+   "player": 0,
+   "by": "model",
+   "action": "<RAISE>",
+   "observation": "1. Blind ante: both player_0 and player_1 place 1 chip into the pot.\n2. Deal: your card is Q.",
+   "legal": [
+    "<CALL>",
+    "<RAISE>"
+   ],
+   "reward": 0.05,
+   "rewards": [
+    0.0,
+    0.0
+   ],
+   "done": false,
+   "view": {
+    "type": "leduc",
+    "round": 1,
+    "pot": 4,
+    "money": [
+     97,
+     99
+    ],
+    "public": null,
+    "cards": [
+     "Q",
+     "J"
+    ],
+    "sequences": [
+     [
+      "Raise"
+     ],
+     []
+    ],
+    "bets": [
+     3,
+     1
+    ]
+   },
+   "think": "Okay, let's see. I'm player_0 in Leduc Poker. The game starts with both players putting in a blind ante of 1 chip each. I have the Queen as my private card. The legal actions here are CALL or RAISE.\n\nFirst, I need to decide whether to call or raise. Since it's the first betting round, if I raise, I have to add 2 chips. But what's the optimal strategy here? Let's think about the possible scenarios.\n\nIf I call, I'm matching the current bet. But since the other player is player_1, I don't know their card. However, I know that the public card will be revealed after this round. Wait, no, the first round is before the public card is revealed. Wait, the rules say that after the first betting round ends, one public card is revealed. So in this turn, the first betting round is happening, and then the public card will be revealed. \n\nBut in the first round, the players have only their private cards. So, if I raise, I'm adding 2 chips. But if I call, I'm just matching the current bet. But what's the current bet? Since both players have placed a blind ante of 1 each, the initial bet is 1. So if I call, I'm adding 1, making the total bet 1? Wait, maybe I need to clarify the betting structure.\n\nWait, the rules say that in the first round, when no bet has been made, CALL is equivalent to checking. But in this case, the blind ante is already in place. Wait, the blind ante is part of the pot, but the betting rounds are separate. Wait, the initial 1 chip each is the blind ante. Then, the first betting round starts. So the initial bet is 1 each, but during the betting round, players can bet. But maybe the betting is after the blind ante. Wait, the rules say that the first betting round is when the players act. So the initial blind ante is 1 each, and then the first betting round starts. So in the first round, the current bet is 1 (from the blind ante), but players can choose to call, raise, or fold. \n\nWait, maybe the betting is in addition to the blind ante. Let me check the rules again. Rule 5 says that in the first round, players can choose to fold, call, or raise. The initial bet is the blind ante of 1 each. So when the first round starts, the current bet is 1 (the blind ante). So if I call, I would have to match that, which would be adding 1 more, making the total bet 2? Or is the current bet the amount that has been placed so far? \n\nAlternatively, maybe the betting starts with zero, and the blind ante is separate. Wait, the rules say that the blind ante is placed at the start of each game. Then, the betting rounds happen. So the first betting round is the first time players can bet. So the initial bet is 1 each (the blind ante), but during the first betting round, players can bet. So if I call, I have to match the current bet. But the current bet is the blind ante, which is 1. So calling would mean I add 1, making the total bet 2? Or is the current bet the amount that has been placed in the betting round. \n\nThis is confusing. Let me think again. The initial blind ante is 1 each. Then, the first betting round starts. The betting rounds are separate from the blind ante. So during the first betting round, players can choose to call, raise, or fold. If no bet has been made, called is equivalent to checking. But since the blind ante is already in place, maybe the first betting round is the first opportunity to bet. \n\nWait, maybe the betting rounds are separate from the blind ante. So the blind ante is 1 each. Then, the first betting round starts. In this round, players can bet. So the initial bet is 0, and the players can choose to call (match the current bet, which is 0, so that's checking), raise (add 2 chips), or fold. But that seems odd because the blind ante is already in the pot. \n\nAlternatively, maybe the blind ante is part of the betting. For example, the initial bet is 1 each (the blind ante), and then during the first betting round, players can bet. So if you call, you have to match the current bet, which is 1. So if you call, you add 1, making the total bet 2. But that would mean that the total pot is 1 (blind ante) + 2 (call) = 3? Or is the blind ante separate from the betting? \n\nThis is a bit unclear. However, given that the legal actions are CALL and RAISE, and the player is supposed to choose between them, perhaps the correct approach is to consider that in the first round, the current bet is 1 (the blind ante), so calling would mean matching that, which would be adding 1, making the total bet 2. But if the player raises, they add 2 (as per rule 5, n=2 in the first round). \n\nBut maybe the betting is done after the blind ante. So the initial bet is 1 each, but during the first betting round, players can bet. So if you call, you have to match the current bet. But since the current bet is 1 (the blind ante), calling would mean you add 1, making the total bet 2. But if you raise, you add 2, making it 3. However, the problem is that the players are not sure about each other's cards. \n\nSince I have a Queen, I need to decide whether to call or raise. If I raise, I'm putting in 2 more chips (total 3), which might be a stronger show of strength. But if I call, I'm just matching the current bet. However, if the other player has a higher card (like King), they might have a stronger hand. \n\nBut since the public card is not yet revealed, the only way to win is through the showdown. So if I raise, I'm trying to get the other player to fold, but if they have a King, they might call. Alternatively, if I call, I might be able to get more information. \n\nBut in Leduc Poker, the optimal strategy for the first round is usually to raise if you have a strong hand. Since I have a Queen, which is a decent hand, but not the strongest. However, the public card will be revealed after the first round. So if I raise, I'm trying to get the other player to fold, but if they have a King, they might have a better hand. \n\nAlternatively, if I call, I can see what the other player does. If they raise, then I can decide whether to call or fold. But since the public card is not yet revealed, maybe the best approach is to raise. Because if I raise, I might be able to get the other player to fold if they have a weaker hand. \n\nBut I'm not sure. Maybe the correct strategy is to raise with a Queen. Because in the first round, raising is a way to show strength. However, if the other player has a King, they might call. Then, in the second round, the public card is revealed. \n\nAlternatively, if I call, and the other player has a King, they might raise, and then I can call or fold. But since I have a Queen, I might have a better hand than the public card. \n\nHmm. This is a bit tricky. But in Leduc Poker, the standard strategy for the first round is to raise with a Queen, because it's a strong hand. So I think the correct action here is to RAISE.",
+   "answer": "<RAISE>",
+   "raw": "<think>\nOkay, let's see. I'm player_0 in Leduc Poker. The game starts with both players putting in a blind ante of 1 chip each. I have the Queen as my private card. The legal actions here are CALL or RAISE.\n\nFirst, I need to decide whether to call or raise. Since it's the first betting round, if I raise, I have to add 2 chips. But what's the optimal strategy here? Let's think about the possible scenarios.\n\nIf I call, I'm matching the current bet. But since the other player is player_1, I don't know their card. However, I know that the public card will be revealed after this round. Wait, no, the first round is before the public card is revealed. Wait, the rules say that after the first betting round ends, one public card is revealed. So in this turn, the first betting round is happening, and then the public card will be revealed. \n\nBut in the first round, the players have only their private cards. So, if I raise, I'm adding 2 chips. But if I call, I'm just matching the current bet. But what's the current bet? Since both players have placed a blind ante of 1 each, the initial bet is 1. So if I call, I'm adding 1, making the total bet 1? Wait, maybe I need to clarify the betting structure.\n\nWait, the rules say that in the first round, when no bet has been made, CALL is equivalent to checking. But in this case, the blind ante is already in place. Wait, the blind ante is part of the pot, but the betting rounds are separate. Wait, the initial 1 chip each is the blind ante. Then, the first betting round starts. So the initial bet is 1 each, but during the betting round, players can bet. But maybe the betting is after the blind ante. Wait, the rules say that the first betting round is when the players act. So the initial blind ante is 1 each, and then the first betting round starts. So in the first round, the current bet is 1 (from the blind ante), but players can choose to call, raise, or fold. \n\nWait, maybe the betting is in addition to the blind ante. Let me check the rules again. Rule 5 says that in the first round, players can choose to fold, call, or raise. The initial bet is the blind ante of 1 each. So when the first round starts, the current bet is 1 (the blind ante). So if I call, I would have to match that, which would be adding 1 more, making the total bet 2? Or is the current bet the amount that has been placed so far? \n\nAlternatively, maybe the betting starts with zero, and the blind ante is separate. Wait, the rules say that the blind ante is placed at the start of each game. Then, the betting rounds happen. So the first betting round is the first time players can bet. So the initial bet is 1 each (the blind ante), but during the first betting round, players can bet. So if I call, I have to match the current bet. But the current bet is the blind ante, which is 1. So calling would mean I add 1, making the total bet 2? Or is the current bet the amount that has been placed in the betting round. \n\nThis is confusing. Let me think again. The initial blind ante is 1 each. Then, the first betting round starts. The betting rounds are separate from the blind ante. So during the first betting round, players can choose to call, raise, or fold. If no bet has been made, called is equivalent to checking. But since the blind ante is already in place, maybe the first betting round is the first opportunity to bet. \n\nWait, maybe the betting rounds are separate from the blind ante. So the blind ante is 1 each. Then, the first betting round starts. In this round, players can bet. So the initial bet is 0, and the players can choose to call (match the current bet, which is 0, so that's checking), raise (add 2 chips), or fold. But that seems odd because the blind ante is already in the pot. \n\nAlternatively, maybe the blind ante is part of the betting. For example, the initial bet is 1 each (the blind ante), and then during the first betting round, players can bet. So if you call, you have to match the current bet, which is 1. So if you call, you add 1, making the total bet 2. But that would mean that the total pot is 1 (blind ante) + 2 (call) = 3? Or is the blind ante separate from the betting? \n\nThis is a bit unclear. However, given that the legal actions are CALL and RAISE, and the player is supposed to choose between them, perhaps the correct approach is to consider that in the first round, the current bet is 1 (the blind ante), so calling would mean matching that, which would be adding 1, making the total bet 2. But if the player raises, they add 2 (as per rule 5, n=2 in the first round). \n\nBut maybe the betting is done after the blind ante. So the initial bet is 1 each, but during the first betting round, players can bet. So if you call, you have to match the current bet. But since the current bet is 1 (the blind ante), calling would mean you add 1, making the total bet 2. But if you raise, you add 2, making it 3. However, the problem is that the players are not sure about each other's cards. \n\nSince I have a Queen, I need to decide whether to call or raise. If I raise, I'm putting in 2 more chips (total 3), which might be a stronger show of strength. But if I call, I'm just matching the current bet. However, if the other player has a higher card (like King), they might have a stronger hand. \n\nBut since the public card is not yet revealed, the only way to win is through the showdown. So if I raise, I'm trying to get the other player to fold, but if they have a King, they might call. Alternatively, if I call, I might be able to get more information. \n\nBut in Leduc Poker, the optimal strategy for the first round is usually to raise if you have a strong hand. Since I have a Queen, which is a decent hand, but not the strongest. However, the public card will be revealed after the first round. So if I raise, I'm trying to get the other player to fold, but if they have a King, they might have a better hand. \n\nAlternatively, if I call, I can see what the other player does. If they raise, then I can decide whether to call or fold. But since the public card is not yet revealed, maybe the best approach is to raise. Because if I raise, I might be able to get the other player to fold if they have a weaker hand. \n\nBut I'm not sure. Maybe the correct strategy is to raise with a Queen. Because in the first round, raising is a way to show strength. However, if the other player has a King, they might call. Then, in the second round, the public card is revealed. \n\nAlternatively, if I call, and the other player has a King, they might raise, and then I can call or fold. But since I have a Queen, I might have a better hand than the public card. \n\nHmm. This is a bit tricky. But in Leduc Poker, the standard strategy for the first round is to raise with a Queen, because it's a strong hand. So I think the correct action here is to RAISE.\n</think>\n\n<answer><RAISE></answer>",
+   "tokens": 1673,
+   "prompt_tokens": 680,
+   "seconds": 247.4,
+   "valid": true,
+   "forfeit": null,
+   "prompt_tail": "Information of Turn-1:\n\nThis is your turn. The game state and legal actions for this turn are provided below. Please choose your action and strictly follow the given output format in the response instructions.\n\nGAME STATE:\n1. Blind ante: both player_0 and player_1 place 1 chip into the pot.\n2. Deal: your card is Q.\n\nLEGAL ACTIONS:\n<CALL>, <RAISE>.\n\n"
+  },
+  {
+   "n": 2,
+   "player": 1,
+   "by": "bot",
+   "action": "<FOLD>",
+   "observation": "1. Blind ante: both player_0 and player_1 place 1 chip into the pot.\n2. Deal: your card is J.\n4. First betting round:\n    a. Turn 1: player_0 chooses to <RAISE> (+2 chips).",
+   "legal": [
+    "<FOLD>",
+    "<CALL>",
+    "<RAISE>"
+   ],
+   "reward": -1.0,
+   "rewards": [
+    1.0,
+    -1.0
+   ],
+   "done": true,
+   "view": {
+    "type": "leduc",
+    "round": 1,
+    "pot": 4,
+    "money": [
+     101,
+     99
+    ],
+    "public": null,
+    "cards": [
+     "Q",
+     "J"
+    ],
+    "sequences": [
+     [
+      "Raise",
+      "Fold"
+     ],
+     []
+    ],
+    "bets": [
+     3,
+     1
+    ],
+    "returns": [
+     1.0,
+     -1.0
+    ]
+   }
+  }
+ ],
+ "result": {
+  "info": {
+   "card_0": "Q",
+   "card_1": "J",
+   "public_card": "J",
+   "player_0_return": 1.0,
+   "player_1_return": -1.0,
+   "winner": 0,
+   "player_0_lose_for_wrong_format": 0,
+   "player_1_lose_for_wrong_format": 0,
+   "player_0_lose_for_overlong_response": 0,
+   "player_1_lose_for_overlong_response": 0,
+   "player_0_lose_for_overlong_sequence": 0,
+   "player_1_lose_for_overlong_sequence": 0,
+   "player_0_success": true,
+   "player_1_success": false,
+   "draw": false,
+   "total_pot": 0.0,
+   "player_0_bet": -1.0,
+   "player_1_bet": 1.0
+  },
+  "truncated": false,
+  "winner": 0,
+  "draw": false,
+  "returns": [
+   1.0,
+   -1.0
+  ],
+  "reason": "end"
+ },
+ "turn_rewards": {
+  "0": [
+   1.05
+  ],
+  "1": [
+   -1.0
+  ]
+ },
+ "seat_keys": [
+  "marshal-4b",
+  "bot"
+ ]
+}
