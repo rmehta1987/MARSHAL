@@ -849,11 +849,12 @@
     const keys = Object.keys(D.models || {});
     const cell = (team, eve) => {
       const p = P.find((x) => x.team === team && x.eve === eve);
-      if (!p || !p.episodes) return `<div class="box dcell"><p class="note">Not played yet.</p></div>`;
+      const cap = `<span class="dcap">Team ${esc(D.models[team])} · Eve ${esc(D.models[eve])}</span>`;
+      if (!p || !p.episodes) return `<div class="box dcell">${cap}<p class="note">Not played yet.</p></div>`;
       const segs = [["survived", "win", "Team survived 8 rounds"], ["miscommunicated", "forfeit", "Team miscommunicated twice"], ["intercepted", "loss", "Eve intercepted twice"], ["both", "other", "Both in the same round"]]
         .map(([k, cls, label]) => p[k] ? `<span class="seg ${cls}" style="flex:${p[k]}" data-tip="${esc(`${p.team_name} team vs ${p.eve_name} as Eve|${label}: ${p[k]} of ${p.episodes} games|${p.avg_rounds} rounds on average`)}">${p[k] / p.episodes >= 0.09 ? p[k] : ""}</span>` : "").join("");
       const retry = (r) => fmtNum(p.attempts[r]);
-      return `<div class="box dcell">
+      return `<div class="box dcell">${cap}
         <div class="seg-bar">${segs}</div>
         <p><b style="color:var(--text)">${p.survived}</b> of ${p.episodes} survived · ${p.intercepted + p.both} intercepted · ${p.miscommunicated + p.both} miscommunicated · ${fmtNum(p.avg_rounds)} rounds</p>
         <p class="note">Answer retries per move: Alice ${retry("encoder")}, Bob ${retry("decoder")}, Eve ${retry("interceptor")}${p.fails.encoder + p.fails.decoder + p.fails.interceptor ? ` · ${p.fails.encoder + p.fails.decoder + p.fails.interceptor} gave up` : ""}</p>
@@ -868,11 +869,11 @@
         <td>${pct(c.intercept_rate_without)} <span class="note">(${c.intercepts - c.intercepts_with_stem}/${c.rounds - c.rounds_with_stem})</span></td>
         <td class="note">${esc((c.examples || []).slice(0, 3).join(", "))}</td></tr>`;
     }).join("");
-    const clueBox = clueRows ? `<div class="box"><h3>How each model writes clues as Alice</h3>
+    const clueBox = clueRows ? `<div class="box table-wrap"><h3>How each model writes clues as Alice</h3>
       <table class="drift"><thead><tr><th>Team model</th><th>Clue copies its keyword's stem</th><th>Eve intercepts, rounds with one</th><th>…rounds without</th><th>Examples (keyword → clue)</th></tr></thead><tbody>${clueRows}</tbody></table></div>` : "";
     const capCell = (s) => (s && s.moves ? `${s.capped}/${s.moves} <span class="note">(${pct(s.cap_rate)}, ~${s.mean_tokens} tokens)</span>` : "–");
     const capRows = keys.filter((k) => D.cap?.[k]).map((k) => `<tr><td class="k">${esc(D.models[k])}</td><td>${capCell(D.cap[k].encoder)}</td><td>${capCell(D.cap[k].decoder)}</td><td>${capCell(D.cap[k].interceptor)}</td></tr>`).join("");
-    const capBox = capRows ? `<div class="box"><h3>Thinking cut off by Decrypto's 1024-token budget</h3>
+    const capBox = capRows ? `<div class="box table-wrap"><h3>Thinking cut off by Decrypto's 1024-token budget</h3>
       <table class="drift"><thead><tr><th>Model</th><th>as Alice</th><th>as Bob</th><th>as Eve</th></tr></thead><tbody>${capRows}</tbody></table>
       <p class="note" style="margin-top:0.4rem">Moves whose thinking reached the budget (≥ 1015 tokens) and was cut off before the model concluded; Decrypto then forces an answer.</p></div>` : "";
     const grid = `<div class="dgrid" style="grid-template-columns:12rem repeat(${keys.length},minmax(0,1fr))">
@@ -1120,7 +1121,7 @@
     const rows = (R.drift || []).map((d) => `<tr><td class="k">${esc(d.knob)}</td><td>${esc(d.paper)}</td><td class="${d.same ? "same" : ""}"><span class="${d.same ? "mark-same" : "mark-diff"}"></span>${esc(d.bringup)}</td></tr>`).join("");
     return head("Bring-up vs the paper", "The bring-up kept MARSHAL's method and base model and cut the scale to fit one node. Its numbers are training diagnostics, not the paper's evaluations, so they can't be compared directly.") +
       `<div class="slide-body paper-grid">
-        <div class="box" style="overflow:hidden"><table class="drift"><thead><tr><th>Setting</th><th>Paper config</th><th>Bring-up runs</th></tr></thead><tbody>${rows}</tbody></table></div>
+        <div class="box table-wrap" style="overflow:hidden"><table class="drift"><thead><tr><th>Setting</th><th>Paper config</th><th>Bring-up runs</th></tr></thead><tbody>${rows}</tbody></table></div>
         <div class="side-notes">
           <div class="box"><h3>Published checkpoints</h3><p>${(P.models || []).map((m) => `<code>${esc(m.id.split("/")[1])}</code> — ${esc(m.trained_on)}`).join("<br>")}</p></div>
           <div class="box"><h3>What the paper measures</h3><p>Win rates against fixed opponents on held-out games, and benchmark accuracy (AIME, GPQA-Diamond, …) when the model sits inside multi-agent systems such as MAD and AutoGen.</p></div>
@@ -1171,9 +1172,28 @@
     else if (k === "+" || k === "=") { S.speed = clampSpeed(S.speed * 1.25); updateContext(); }
     else if (k === "-" || k === "_") { S.speed = clampSpeed(S.speed / 1.25); updateContext(); }
     else if (k === "h" || k === "H") { S.footerHidden = !S.footerHidden; $("bottom").classList.toggle("hidden-ui", S.footerHidden); }
-    else if (k === "f" || k === "F") { if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen?.(); }
+    else if (k === "f" || k === "F") {
+      try {
+        const p = document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen?.();
+        p?.catch?.(() => {});
+      } catch { /* not allowed here */ }
+    }
     else if (k === "?") $("help").hidden = !$("help").hidden;
   });
+
+  // A link can open a screen: #arena, #results, or a Results page (#decrypto, #curves, …).
+  function applyHash() {
+    const h = decodeURIComponent(location.hash.slice(1));
+    if (!h) return false;
+    if (h === "arena") { goArena(); return true; }
+    if (h === "results") { goResults(); return true; }
+    const i = SLIDES.findIndex((s) => s.key === h);
+    if (i >= 0) { S.slide = i; goResults(); return true; }
+    return false;
+  }
+  window.addEventListener("hashchange", () => { touched(); applyHash(); });
+  ["wheel", "touchstart"].forEach((ev) => window.addEventListener(ev, touched, { passive: true }));
+  document.addEventListener("click", touched);
 
   // ------------------------------------------------------------ start
   async function init() {
@@ -1183,6 +1203,10 @@
     ensureResults();
     initLive();
     await refreshList();
+    if (location.hash && S.playlist.length) {
+      S.rec = await loadGame(S.playlist[0].id);
+      if (applyHash()) return;
+    }
     if (S.scene === "results") { S.phase = "slide"; S.slidesShown = -4; S.slideUntil = HOLD.slide; setScene("results"); if (!S.playlist.length) return; S.rec = await loadGame(S.playlist[0].id); return; }
     if (S.playlist.length) startReplay(S.playlist[0].id); else showEmpty();
   }

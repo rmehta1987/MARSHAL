@@ -55,6 +55,16 @@ python3 -m display.export --match connect --limit 10 --out c4.html
 The page, fonts, images, games and Results data in one HTML file, for example on
 a USB stick for the venue's computer.
 
+`--artifact` writes the same page for a claude.ai Artifact (the host adds the
+document wrapper). Published as **MARSHAL Arena**:
+https://claude.ai/artifact/9DsLZToCET1b2t8pcj7sPn (private until shared). Links can
+open a screen directly: `#results`, `#arena`, or a Results page such as `#decrypto`
+or `#curves`. Live games need the local servers, so the artifact has replays only.
+
+```shell
+python3 -m display.export --artifact --out results/marshal_arena.html
+```
+
 ## Live games and the Arena evaluation
 
 Live games and recording need OpenSpiel. The system Python won't take `pip

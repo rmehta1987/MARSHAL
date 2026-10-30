@@ -34,7 +34,7 @@ def read(name):
         return f.read()
 
 
-def build(games_roots=DEFAULT_GAMES, match="", limit=0, decrypto_dir=DECRYPTO_RESULTS):
+def build(games_roots=DEFAULT_GAMES, match="", limit=0, decrypto_dir=DECRYPTO_RESULTS, artifact=False):
     index = GameIndex(games_roots)
     records = index.scan()
     if match:
@@ -58,6 +58,13 @@ def build(games_roots=DEFAULT_GAMES, match="", limit=0, decrypto_dir=DECRYPTO_RE
     html = html.replace('<link rel="stylesheet" href="/static/app.css">', f"<style>\n{css}\n</style>")
     html = html.replace('<script src="/static/app.js"></script>',
                         f"<script>window.MARSHAL_EMBED = {payload};</script>\n<script>\n{js}\n</script>")
+    if artifact:
+        # A claude.ai Artifact page: the host adds the document skeleton, so ship the
+        # title, the viewport promise, the styles and the body's content only.
+        title = re.search(r"<title>.*?</title>", html, re.S).group(0)
+        style = re.search(r"<style>.*?</style>", html, re.S).group(0)
+        body = re.search(r"<body>(.*)</body>", html, re.S).group(1)
+        html = f'{title}\n<meta name="claude:viewport-fit-sides" content="cover">\n{style}\n{body}'
     return html, len(records)
 
 
@@ -67,8 +74,10 @@ def main(argv=None):
     parser.add_argument("--games", nargs="+", default=DEFAULT_GAMES, help="Folders with *.marshal-game.json files.")
     parser.add_argument("--match", default="", help="Keep games whose game, model or tag match these words.")
     parser.add_argument("--limit", type=int, default=0, help="Keep at most this many games (0 = all).")
+    parser.add_argument("--artifact", action="store_true",
+                        help="Write a claude.ai Artifact page (no <html>/<head>/<body> of its own).")
     args = parser.parse_args(argv)
-    html, n = build(args.games, args.match, args.limit)
+    html, n = build(args.games, args.match, args.limit, artifact=args.artifact)
     with open(args.out, "w", encoding="utf-8") as f:
         f.write(html)
     print(f"Wrote {args.out}: {n} games, {len(html) / 1e6:.1f} MB. Open it in any browser.")
