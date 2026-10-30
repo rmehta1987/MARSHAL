@@ -1,0 +1,194 @@
+{
+ "format": "marshal-game/1",
+ "id": "kuhn_poker-20261030-115754-8c94c0",
+ "game": "kuhn_poker",
+ "title": "Kuhn Poker",
+ "family": "Competitive · imperfect information",
+ "split": "training",
+ "seed": 6,
+ "env_options": {
+  "built_in_opponent": "cfr",
+  "opponent_player": 1
+ },
+ "settings": {
+  "sequence_length": 32768,
+  "max_new_tokens": 4096,
+  "format_penalty": 0.05
+ },
+ "players": [
+  {
+   "kind": "model",
+   "name": "MARSHAL 4B",
+   "model": "nics-efc/MARSHAL-Generalist-Qwen3-4B",
+   "sampling": {
+    "temperature": 0.6,
+    "top_p": 0.99,
+    "top_k": 100
+   },
+   "note": "Official MARSHAL Generalist checkpoint (Qwen3-4B after self-play on Tic-Tac-Toe, Kuhn Poker and Mini Hanabi).",
+   "seat": 0,
+   "mark": "P0"
+  },
+  {
+   "kind": "bot",
+   "name": "CFR equilibrium bot",
+   "seat": 1,
+   "mark": "P1"
+  }
+ ],
+ "prompts": {
+  "0": {
+   "system": "You are an AI agent that makes optimal decisions to win in the game of Kuhn Poker.",
+   "user": "GAME RULES:\n1. Kuhn poker is a two-player card game. The deck includes only three cards: King (K) > Queen (Q) > Jack (J).\n2. At the start of each game, both player_0 and player_1 place 1 chip into the pot as a blind ante.\n3. Each player is dealt a private card, and the third card is set aside unseen.\n4. The two players take turns acting, starting with player_0. A player can choose to:\n    a. <PASS>: place no additional chips into the pot.\n    b. <BET>: place 1 additional chip into the pot.\n5. If a player chooses to <PASS> after the other player's <BET>, the betting player wins the pot.\n6. If both players choose to <PASS> or both players choose to <BET>, the player with the higher card wins the pot.\n\nPLAYER INFORMATION:\n1. You are player_0. You are competing with player_1.\n2. In each of your turns:\n   a. The game state shows your private card and the betting history.\n   b. You need to choose an action based on your card and the current game state.\n   c. All legal actions for the current turn are provided in the format of `<PASS>` or `<BET>`.\n\nRESPONSE INSTRUCTIONS:\nAlways choose only one action from the legal actions and output `<answer>{your chosen action}</answer>` with no extra text after you finish the thinking process. For example, `<answer><PASS></answer>`. Strictly follow the above format and keep your thinking process concise. Responses that do not follow the format will result in immediate loss of the game.\n\n"
+  }
+ },
+ "source": "eval",
+ "started": "2026-10-30T16:57:54+00:00",
+ "finished": "2026-10-30T17:04:15+00:00",
+ "initial": {
+  "observation": "1. Blind ante: both player_0 and player_1 place 1 chip into the pot.\n2. Deal: your card is Jack (J).",
+  "view": {
+   "type": "kuhn",
+   "cards": [
+    "J",
+    "Q"
+   ],
+   "bets": [
+    1,
+    1
+   ],
+   "pot": 2,
+   "actions": []
+  }
+ },
+ "moves": [
+  {
+   "n": 1,
+   "player": 0,
+   "by": "model",
+   "action": "<PASS>",
+   "observation": "1. Blind ante: both player_0 and player_1 place 1 chip into the pot.\n2. Deal: your card is Jack (J).",
+   "legal": [
+    "<PASS>",
+    "<BET>"
+   ],
+   "reward": -0.0970299459990182,
+   "rewards": [
+    0.0,
+    0.0
+   ],
+   "done": false,
+   "view": {
+    "type": "kuhn",
+    "cards": [
+     "J",
+     "Q"
+    ],
+    "bets": [
+     1,
+     1
+    ],
+    "pot": 2,
+    "actions": [
+     {
+      "player": 0,
+      "action": "PASS"
+     }
+    ]
+   },
+   "think": "Okay, let's see. I need to decide whether to pass or bet in this turn. So, in Kuhn Poker, each player starts with a blind ante of 1 chip. I have the Jack (J), and the other player has either a Queen or King, since the third card is set aside. Wait, the third card is the one that's not dealt to either player. So the deck has three cards: K, Q, J. Each player gets one, and the third is hidden.\n\nSo, my card is J. The other player has either K or Q. The third card is the remaining one. So, if I bet, then if the other player has a higher card, they would win. But if I pass, then if they bet, I lose. But if both pass, then the higher card wins.\n\nBut since I have J, which is the lowest, maybe I should consider thepossible scenarios. Let's think: if I bet, then the other player can either pass or bet. If they pass, then I win because I bet and they pass. Wait, no. Rule 5 says if a player passes after the other's bet, the betting player wins. So if I bet, and the other player passes, then I win. But if they also bet, then the higher card wins. Since I have J, if they have K, then they have higher, so they win. If they have Q, then I have J, which is lower than Q, so they win. Wait, but if both bet, then the higher card wins. So if I have J, and the other has Q or K, then if both bet, the other would win. So if I bet, then if the other has Q, they would have higher, so they would win. If they have K, same thing. So if I bet, then if the other player has a higher card, they win. But if they pass, then I win. So maybe I should bet, because if they have a lower card (but they can't have lower than J, since J is the lowest. Wait, no. The third card is the one not dealt. So the other player's card is either K or Q. So if I bet, then the other player can choose to pass or bet. If they pass, I win. If they bet, then the higher card wins. But since I have J, and the other has either Q or K, then if they bet, they have higher. So in that case, I lose. So if I bet, there's a 50% chance of winning (if they pass) and 50% of losing (if they bet). But if I pass, then the other player can choose to bet or pass. If they bet, then I have to pass, and then they win. If they pass, then we both pass, and the higher card wins. Since I have J, if the other has Q, then they win. If they have K, they win. So if I pass, then if the other player has Q or K, they would have higher. So in that case, if I pass, I lose. So maybe betting is better? Because if I bet, I have a chance to win if they pass, but if they bet, I lose. But if I pass, I lose regardless. Wait, but if I pass, and the other passes, then the higher card wins. Since I have J, which is the lowest, then the other player's card is either Q or K, so they would have higher. So if I pass, then in the case where both pass, I lose. If I pass, and the other bets, then I have to pass, and they win. So passing leads to loosing in all scenarios. Therefore, the optimal strategy is to bet, because if I bet, then if the other passes, I win. If they bet, I lose. But since I have J, which is the lowest, maybe I should bet. Because otherwise, if I pass, I lose. So the only way to win is if the other passes. But if I bet, then there's a chance to win. So maybe the correct action is to bet. Wait, but what's the equilibrium here? in Kuhn Poker, the optimal strategy is to bet if you have the highest card, and pass if you have the lowest. But here, I have J, which is the lowest. So according to the standard strategy, I should pass. But wait, maybe that's not correct. Let me think again. If I have J, the third card is either K or Q. So the other player has the other. If I pass, then the other player can choose to bet or pass. If they bet, then I have to pass, and they win. If they pass, then we both pass, and the other player has higher. So regardless of what the other does, I lose. So passing is a bad move. Therefore, the optimal strategy is to bet. Because if I bet, then if the other player passes, I win. If they bet, then I lose. But since the other player has a higher card, maybe they would bet. But in that case, the chance of winning is 50% (if they pass). But if I bet, then the other player has to decide. But in the standard Kuhn Poker strategy, the optimal play is for the player with the lowest card to pass. Wait, but that seems to lead to loss. Maybe I'm missing something. Let me think again. In Kuhn Poker, the standard strategy is that the player with the highest card should bet, and the player with the lowest should pass. But in this case, if I have J (lowest), I should pass. But if I pass, the other player can bet. Then I have to pass, and they win. But if the other player has Q, then if I pass and they pass, then the higher card (Q) wins. So in that case, I lose. But if I bet, then if the other player has Q, they would have higher, but if they pass, I win. So the other player might choose to bet if they have Q. But if they have K, they would bet. So if I bet, the other player has a higher chance to bet. So maybe the optimal strategy is to bet. Wait, this is confusing. Maybe I should consider the expected value. Let's suppose that the other player's card is Q with 50% chance and K with 50% chance. If I bet, then the other player can choose to pass or bet. If they have Q, they would have a higher card than me (J), so they might choose to bet. If they have K, they would also bet. So if I bet, the other player would bet in both cases. Then, since both bet, the higher card wins. Since the other player has higher, they win. So in that case, I lose. But if I pass, then the other player can choose to bet or pass. If they bet, I have to pass, and they win. If they pass, then the higher card wins. So in both cases, I lose. So maybe the optimal strategy is to bet. But in that case, I'd lose. So why would I bet? Wait, but maybe the other player is not playing optimally. If I bet, and the other player passes, then I win. But if the other player has a higher card, they would bet. So maybe the other player will bet. So in that case, I lose. So why bet? This seems like a dilemma. But according to the standard strategy, the player with the lowest card should pass. But in that case, they lose. So maybe the optimal strategy is to pass. But that leads to losing. So why is that the case? Ah, maybe in Kuhn Poker, the optimal strategy is to bet if you have the highest card, and pass if you have the lowest. But in this case, I have J, the lowest. So I should pass. But that leads to losing. So maybe the optimal strategy is to pass. But then, why is that the case? Because if you have the lowest, you can't win unless the other player passes. But if you pass, the other player can choose to bet. So maybe the correct action here is to pass. But in that case, I lose. But maybe that's the best possible. Because if I bet, I have a 50% chance to win (if the other passes) and 50% to lose. But if I pass, I lose for sure. So maybe the optimal is to bet. Wait, but that's not correct. Because if the other player has Q, then if I bet, they would bet, and then I lose. If they have K, they would bet, and I lose. So in both cases, I lose. So betting is worse than passing. Wait, but if I bet, and the other player has Q, then they would have higher. So they would bet. Then, since both bet, the higher card wins. So I lose. If I bet, and the other player has K, same thing. So in either case, I lose. So passing is better. Because if I pass, the other player can choose to bet or pass. If they bet, I pass, and they win. If they pass, then the higher card wins. But in either case, I lose. So passing is the same as betting. So maybe the optimal strategy is to pass. But then why is that the case? Because in Kuhn Poker, the standard strategy is for the player with the lowest card to pass. So maybe the answer here is to pass. But I'm not sure. Alternatively, maybe the player with the lowest card should bet. But that seems counter-intuitive. Let me check the rules again. The rules say that if both players pass or both bet, the higher card wins. So if I have J, and the other has Q, then if both pass, the other wins. If I bet and they pass, I win. So if I bet, there's a 50% chance to win. If I pass, 0% chance. So maybe the optimal action is to bet. But how does that fit with the standard strategy? Maybe I'm missing something. Wait, the other player's card is either Q or K. So if I bet, and the other passes, I win. But if they have Q, they would have to pass. Wait, no. If the other player has Q, they would have a higher card than me (J). So if I bet, and they pass, then I win. But if they have Q, they would have a higher card, so they would bet. So if they have Q, they would bet. So if I bet, and they have Q, they would bet. Then both bet, and the higher card (Q) wins. So in that case, I lose. So if I bet, and the other has Q, I lose. If the other has K, same thing. So betting leads to losing. So passing is better. Hence, the correct action is to pass. But then, why would the other player pass? Because if they have Q, they would have a higher card, so they would bet. If they have K, same thing. So if I pass, and the other player passes, then the higher card wins. But since I have J, the other player has higher. So I lose. So in either case, passing leads to losing. But if I bet, then in the case where the other player has Q, they would bet, and I lose. If they have K, same. So passing is the same as betting. So maybe the optimal strategy is to pass. But that seems like a losing move. But according to the rules, that's the only option. So maybe the correct answer is to pass. But I'm confused. Alternatively, maybe the player with the lowest card should bet. But that seems like a bad strategy. Maybe I should bet. But in that case, I lose. So why would I do that? Maybe the standard strategy is different. Let me think again. In Kuhn Poker, the optimal strategy for the player with the lowest card is to pass. Because if you pass, the other player can choose to bet. If they bet, you lose. If they pass, you lose. So passing is the best option. So the answer is to pass. So the correct action is to pass. Therefore, the answer is <PASS>.",
+   "answer": "<PASS>",
+   "raw": "<think>\nOkay, let's see. I need to decide whether to pass or bet in this turn. So, in Kuhn Poker, each player starts with a blind ante of 1 chip. I have the Jack (J), and the other player has either a Queen or King, since the third card is set aside. Wait, the third card is the one that's not dealt to either player. So the deck has three cards: K, Q, J. Each player gets one, and the third is hidden.\n\nSo, my card is J. The other player has either K or Q. The third card is the remaining one. So, if I bet, then if the other player has a higher card, they would win. But if I pass, then if they bet, I lose. But if both pass, then the higher card wins.\n\nBut since I have J, which is the lowest, maybe I should consider thepossible scenarios. Let's think: if I bet, then the other player can either pass or bet. If they pass, then I win because I bet and they pass. Wait, no. Rule 5 says if a player passes after the other's bet, the betting player wins. So if I bet, and the other player passes, then I win. But if they also bet, then the higher card wins. Since I have J, if they have K, then they have higher, so they win. If they have Q, then I have J, which is lower than Q, so they win. Wait, but if both bet, then the higher card wins. So if I have J, and the other has Q or K, then if both bet, the other would win. So if I bet, then if the other has Q, they would have higher, so they would win. If they have K, same thing. So if I bet, then if the other player has a higher card, they win. But if they pass, then I win. So maybe I should bet, because if they have a lower card (but they can't have lower than J, since J is the lowest. Wait, no. The third card is the one not dealt. So the other player's card is either K or Q. So if I bet, then the other player can choose to pass or bet. If they pass, I win. If they bet, then the higher card wins. But since I have J, and the other has either Q or K, then if they bet, they have higher. So in that case, I lose. So if I bet, there's a 50% chance of winning (if they pass) and 50% of losing (if they bet). But if I pass, then the other player can choose to bet or pass. If they bet, then I have to pass, and then they win. If they pass, then we both pass, and the higher card wins. Since I have J, if the other has Q, then they win. If they have K, they win. So if I pass, then if the other player has Q or K, they would have higher. So in that case, if I pass, I lose. So maybe betting is better? Because if I bet, I have a chance to win if they pass, but if they bet, I lose. But if I pass, I lose regardless. Wait, but if I pass, and the other passes, then the higher card wins. Since I have J, which is the lowest, then the other player's card is either Q or K, so they would have higher. So if I pass, then in the case where both pass, I lose. If I pass, and the other bets, then I have to pass, and they win. So passing leads to loosing in all scenarios. Therefore, the optimal strategy is to bet, because if I bet, then if the other passes, I win. If they bet, I lose. But since I have J, which is the lowest, maybe I should bet. Because otherwise, if I pass, I lose. So the only way to win is if the other passes. But if I bet, then there's a chance to win. So maybe the correct action is to bet. Wait, but what's the equilibrium here? in Kuhn Poker, the optimal strategy is to bet if you have the highest card, and pass if you have the lowest. But here, I have J, which is the lowest. So according to the standard strategy, I should pass. But wait, maybe that's not correct. Let me think again. If I have J, the third card is either K or Q. So the other player has the other. If I pass, then the other player can choose to bet or pass. If they bet, then I have to pass, and they win. If they pass, then we both pass, and the other player has higher. So regardless of what the other does, I lose. So passing is a bad move. Therefore, the optimal strategy is to bet. Because if I bet, then if the other player passes, I win. If they bet, then I lose. But since the other player has a higher card, maybe they would bet. But in that case, the chance of winning is 50% (if they pass). But if I bet, then the other player has to decide. But in the standard Kuhn Poker strategy, the optimal play is for the player with the lowest card to pass. Wait, but that seems to lead to loss. Maybe I'm missing something. Let me think again. In Kuhn Poker, the standard strategy is that the player with the highest card should bet, and the player with the lowest should pass. But in this case, if I have J (lowest), I should pass. But if I pass, the other player can bet. Then I have to pass, and they win. But if the other player has Q, then if I pass and they pass, then the higher card (Q) wins. So in that case, I lose. But if I bet, then if the other player has Q, they would have higher, but if they pass, I win. So the other player might choose to bet if they have Q. But if they have K, they would bet. So if I bet, the other player has a higher chance to bet. So maybe the optimal strategy is to bet. Wait, this is confusing. Maybe I should consider the expected value. Let's suppose that the other player's card is Q with 50% chance and K with 50% chance. If I bet, then the other player can choose to pass or bet. If they have Q, they would have a higher card than me (J), so they might choose to bet. If they have K, they would also bet. So if I bet, the other player would bet in both cases. Then, since both bet, the higher card wins. Since the other player has higher, they win. So in that case, I lose. But if I pass, then the other player can choose to bet or pass. If they bet, I have to pass, and they win. If they pass, then the higher card wins. So in both cases, I lose. So maybe the optimal strategy is to bet. But in that case, I'd lose. So why would I bet? Wait, but maybe the other player is not playing optimally. If I bet, and the other player passes, then I win. But if the other player has a higher card, they would bet. So maybe the other player will bet. So in that case, I lose. So why bet? This seems like a dilemma. But according to the standard strategy, the player with the lowest card should pass. But in that case, they lose. So maybe the optimal strategy is to pass. But that leads to losing. So why is that the case? Ah, maybe in Kuhn Poker, the optimal strategy is to bet if you have the highest card, and pass if you have the lowest. But in this case, I have J, the lowest. So I should pass. But that leads to losing. So maybe the optimal strategy is to pass. But then, why is that the case? Because if you have the lowest, you can't win unless the other player passes. But if you pass, the other player can choose to bet. So maybe the correct action here is to pass. But in that case, I lose. But maybe that's the best possible. Because if I bet, I have a 50% chance to win (if the other passes) and 50% to lose. But if I pass, I lose for sure. So maybe the optimal is to bet. Wait, but that's not correct. Because if the other player has Q, then if I bet, they would bet, and then I lose. If they have K, they would bet, and I lose. So in both cases, I lose. So betting is worse than passing. Wait, but if I bet, and the other player has Q, then they would have higher. So they would bet. Then, since both bet, the higher card wins. So I lose. If I bet, and the other player has K, same thing. So in either case, I lose. So passing is better. Because if I pass, the other player can choose to bet or pass. If they bet, I pass, and they win. If they pass, then the higher card wins. But in either case, I lose. So passing is the same as betting. So maybe the optimal strategy is to pass. But then why is that the case? Because in Kuhn Poker, the standard strategy is for the player with the lowest card to pass. So maybe the answer here is to pass. But I'm not sure. Alternatively, maybe the player with the lowest card should bet. But that seems counter-intuitive. Let me check the rules again. The rules say that if both players pass or both bet, the higher card wins. So if I have J, and the other has Q, then if both pass, the other wins. If I bet and they pass, I win. So if I bet, there's a 50% chance to win. If I pass, 0% chance. So maybe the optimal action is to bet. But how does that fit with the standard strategy? Maybe I'm missing something. Wait, the other player's card is either Q or K. So if I bet, and the other passes, I win. But if they have Q, they would have to pass. Wait, no. If the other player has Q, they would have a higher card than me (J). So if I bet, and they pass, then I win. But if they have Q, they would have a higher card, so they would bet. So if they have Q, they would bet. So if I bet, and they have Q, they would bet. Then both bet, and the higher card (Q) wins. So in that case, I lose. So if I bet, and the other has Q, I lose. If the other has K, same thing. So betting leads to losing. So passing is better. Hence, the correct action is to pass. But then, why would the other player pass? Because if they have Q, they would have a higher card, so they would bet. If they have K, same thing. So if I pass, and the other player passes, then the higher card wins. But since I have J, the other player has higher. So I lose. So in either case, passing leads to losing. But if I bet, then in the case where the other player has Q, they would bet, and I lose. If they have K, same. So passing is the same as betting. So maybe the optimal strategy is to pass. But that seems like a losing move. But according to the rules, that's the only option. So maybe the correct answer is to pass. But I'm confused. Alternatively, maybe the player with the lowest card should bet. But that seems like a bad strategy. Maybe I should bet. But in that case, I lose. So why would I do that? Maybe the standard strategy is different. Let me think again. In Kuhn Poker, the optimal strategy for the player with the lowest card is to pass. Because if you pass, the other player can choose to bet. If they bet, you lose. If they pass, you lose. So passing is the best option. So the answer is to pass. So the correct action is to pass. Therefore, the answer is <PASS>.\n</think>\n\n<answer><PASS></answer>",
+   "tokens": 2647,
+   "prompt_tokens": 470,
+   "seconds": 380.8,
+   "valid": true,
+   "forfeit": null,
+   "prompt_tail": "Information of Turn-1:\n\nThis is your turn. The game state and legal actions for this turn are provided below. Please choose your action and strictly follow the given output format in the response instructions.\n\nGAME STATE:\n1. Blind ante: both player_0 and player_1 place 1 chip into the pot.\n2. Deal: your card is Jack (J).\n\nLEGAL ACTIONS:\n<PASS>, <BET>.\n\n"
+  },
+  {
+   "n": 2,
+   "player": 1,
+   "by": "bot",
+   "action": "<PASS>",
+   "observation": "1. Blind ante: both player_0 and player_1 place 1 chip into the pot.\n2. Deal: your card is Queen (Q).\n3. Turn 1: player_0 chooses to <PASS>.",
+   "legal": [
+    "<PASS>",
+    "<BET>"
+   ],
+   "reward": 1.0,
+   "rewards": [
+    -1.0,
+    1.0
+   ],
+   "done": true,
+   "view": {
+    "type": "kuhn",
+    "cards": [
+     "J",
+     "Q"
+    ],
+    "bets": [
+     1,
+     1
+    ],
+    "pot": 2,
+    "actions": [
+     {
+      "player": 0,
+      "action": "PASS"
+     },
+     {
+      "player": 1,
+      "action": "PASS"
+     }
+    ],
+    "returns": [
+     -1.0,
+     1.0
+    ]
+   }
+  }
+ ],
+ "result": {
+  "info": {
+   "card_0": "Jack (J)",
+   "card_1": "Queen (Q)",
+   "player_0_return": -1.0,
+   "player_1_return": 1.0,
+   "winner": 1,
+   "player_0_lose_for_wrong_format": 0,
+   "player_1_lose_for_wrong_format": 0,
+   "player_0_lose_for_overlong_response": 0,
+   "player_1_lose_for_overlong_response": 0,
+   "player_0_lose_for_overlong_sequence": 0,
+   "player_1_lose_for_overlong_sequence": 0,
+   "player_0_success": false,
+   "player_1_success": true,
+   "draw": false,
+   "total_pot": 2.0,
+   "player_0_bet": 1.0,
+   "player_1_bet": 1.0
+  },
+  "truncated": false,
+  "winner": 1,
+  "draw": false,
+  "returns": [
+   -1.0,
+   1.0
+  ],
+  "reason": "end"
+ },
+ "turn_rewards": {
+  "0": [
+   -1.097
+  ],
+  "1": [
+   1.0
+  ]
+ },
+ "seat_keys": [
+  "marshal-4b",
+  "bot"
+ ]
+}

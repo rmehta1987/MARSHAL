@@ -64,6 +64,14 @@ By leveraging self-play across strategic games, MARSHAL (based on Qwen3-4B) demo
 
 > **Figure 2: Performance Comparison.** > Evaluation of MARSHAL against baselines on strategic games and reasoning benchmarks. MARSHAL not only masters strategic games but also generalizes effectively to complex reasoning tasks within multi-agent frameworks like MAD and AutoGen.
 
+### 📺 Watching it on a screen
+
+`display/` is a full-screen view for a monitor: MARSHAL games replay move by move with each model's reasoning (base Qwen3-4B vs the MARSHAL checkpoint, against MARSHAL's evaluation bots), visitors can take a seat, and a Results screen covers the evaluation, MARSHAL in Decrypto, and the Midway/Polaris training runs.
+```shell
+python3 -m display.server   # then open http://localhost:8766
+```
+See [display/README.md](display/README.md) for live games, recording, offline export and controls.
+
 ---
 
 ## 🛠️ Installation

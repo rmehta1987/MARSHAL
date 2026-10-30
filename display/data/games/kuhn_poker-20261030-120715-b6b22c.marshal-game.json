@@ -1,0 +1,238 @@
+{
+ "format": "marshal-game/1",
+ "id": "kuhn_poker-20261030-120715-b6b22c",
+ "game": "kuhn_poker",
+ "title": "Kuhn Poker",
+ "family": "Competitive · imperfect information",
+ "split": "training",
+ "seed": 9,
+ "env_options": {
+  "built_in_opponent": "cfr",
+  "opponent_player": 0
+ },
+ "settings": {
+  "sequence_length": 32768,
+  "max_new_tokens": 4096,
+  "format_penalty": 0.05
+ },
+ "players": [
+  {
+   "kind": "bot",
+   "name": "CFR equilibrium bot",
+   "seat": 0,
+   "mark": "P0"
+  },
+  {
+   "kind": "model",
+   "name": "Qwen3-4B",
+   "model": "Qwen/Qwen3-4B",
+   "sampling": {
+    "temperature": 0.6,
+    "top_p": 0.99,
+    "top_k": 100
+   },
+   "note": "The base model MARSHAL starts from.",
+   "seat": 1,
+   "mark": "P1"
+  }
+ ],
+ "prompts": {
+  "1": {
+   "system": "You are an AI agent that makes optimal decisions to win in the game of Kuhn Poker.",
+   "user": "GAME RULES:\n1. Kuhn poker is a two-player card game. The deck includes only three cards: King (K) > Queen (Q) > Jack (J).\n2. At the start of each game, both player_0 and player_1 place 1 chip into the pot as a blind ante.\n3. Each player is dealt a private card, and the third card is set aside unseen.\n4. The two players take turns acting, starting with player_0. A player can choose to:\n    a. <PASS>: place no additional chips into the pot.\n    b. <BET>: place 1 additional chip into the pot.\n5. If a player chooses to <PASS> after the other player's <BET>, the betting player wins the pot.\n6. If both players choose to <PASS> or both players choose to <BET>, the player with the higher card wins the pot.\n\nPLAYER INFORMATION:\n1. You are player_1. You are competing with player_0.\n2. In each of your turns:\n   a. The game state shows your private card and the betting history.\n   b. You need to choose an action based on your card and the current game state.\n   c. All legal actions for the current turn are provided in the format of `<PASS>` or `<BET>`.\n\nRESPONSE INSTRUCTIONS:\nAlways choose only one action from the legal actions and output `<answer>{your chosen action}</answer>` with no extra text after you finish the thinking process. For example, `<answer><PASS></answer>`. Strictly follow the above format and keep your thinking process concise. Responses that do not follow the format will result in immediate loss of the game.\n\n"
+  }
+ },
+ "source": "eval",
+ "started": "2026-10-30T17:07:15+00:00",
+ "finished": "2026-10-30T17:12:55+00:00",
+ "initial": {
+  "observation": "1. Blind ante: both player_0 and player_1 place 1 chip into the pot.\n2. Deal: your card is Queen (Q).",
+  "view": {
+   "type": "kuhn",
+   "cards": [
+    "Q",
+    "J"
+   ],
+   "bets": [
+    1,
+    1
+   ],
+   "pot": 2,
+   "actions": []
+  }
+ },
+ "moves": [
+  {
+   "n": 1,
+   "player": 0,
+   "by": "bot",
+   "action": "<PASS>",
+   "observation": "1. Blind ante: both player_0 and player_1 place 1 chip into the pot.\n2. Deal: your card is Queen (Q).",
+   "legal": [
+    "<PASS>",
+    "<BET>"
+   ],
+   "reward": 0.0,
+   "rewards": [
+    0.0,
+    0.0
+   ],
+   "done": false,
+   "view": {
+    "type": "kuhn",
+    "cards": [
+     "Q",
+     "J"
+    ],
+    "bets": [
+     1,
+     1
+    ],
+    "pot": 2,
+    "actions": [
+     {
+      "player": 0,
+      "action": "PASS"
+     }
+    ]
+   }
+  },
+  {
+   "n": 2,
+   "player": 1,
+   "by": "model",
+   "action": "<BET>",
+   "observation": "1. Blind ante: both player_0 and player_1 place 1 chip into the pot.\n2. Deal: your card is Jack (J).\n3. Turn 1: player_0 chooses to <PASS>.",
+   "legal": [
+    "<PASS>",
+    "<BET>"
+   ],
+   "reward": -0.054074619538537025,
+   "rewards": [
+    0.0,
+    0.0
+   ],
+   "done": false,
+   "view": {
+    "type": "kuhn",
+    "cards": [
+     "Q",
+     "J"
+    ],
+    "bets": [
+     1,
+     2
+    ],
+    "pot": 3,
+    "actions": [
+     {
+      "player": 0,
+      "action": "PASS"
+     },
+     {
+      "player": 1,
+      "action": "BET"
+     }
+    ]
+   },
+   "think": "Okay, let's try to figure out what I should do here. So, I'm Player 1 in Kuhn Poker. The game rules are a bit tricky, but let me break it down.\n\nFirst, the setup: both players start with a blind ante of 1 chip each. Then each gets a private card from the deck, which has King, Queen, Jack. The third card is unseen. So, there are three cards total, each player has one, and one is left.\n\nIn Turn 1, Player 0 went <PASS>. Now it's my turn. My card is Jack (J). The legal actions are PASS or BET. I need to decide whether to bet or pass based on my card and the current state.\n\nLet me recall the rules. If both players pass, the one with the higher card wins. If one bets and the other passes, the bettor wins. But if both bet, then the higher card wins.\n\nBut here, Player 0 passed. So, if I pass, then since both passed, the higher card wins. But I have Jack. What's Player 0's card? Wait, I don't know. Because the third card is set aside. So, the cards are: Player 0 has some card, Player 1 has Jack, and the third card is unknown. But the third card is the one that's not dealt to either player. So, the possible cards are K, Q, J. But since Player 1 has J, the other two cards are K and Q. So Player 0 has either K or Q, and the third card is the remaining one.\n\nWait, but the third card is set aside. So, the deck has three cards: K, Q, J. Each player gets one, and the third is in the middle. So, Player 0 has a card, Player 1 has J, and the third card is the remaining one. So, Player 0's card is either K or Q, and the third card is the other. But since Player 0 passed, maybe I can infer something?\n\nBut in Kuhn Poker, the players don't know each other's cards. So, I don't know what Player 0 has. But I do know that my card is J. So, if I pass, then the pot is the blind antes (2 chips total) plus any bets. But since Player 0 passed, and I pass, then the pot is 2 chips. Then, the winner is the one with the higher card. Since I have J, and Player 0 has either K or Q. If Player 0 has K, then they have higher. If they have Q, then I have higher. But since I don't know, maybe I should bet?\n\nWait, but if I bet, then Player 0 could either pass or bet. But Player 0 already passed in their turn. Wait, no. Wait, the turn order is important. Let me check again.\n\nThe game starts with both players placing 1 chip each. Then, each is dealt a card. Then, the players take turns acting, starting with Player 0. So, Turn 1 is Player 0's turn. They choose to pass. Now it's Turn 2, which is Player 1's turn. So, the betting history is that Player 0 passed. So, now, Player 1 can choose to pass or bet.\n\nIf Player 1 passes, then since both passed, the higher card wins. But since Player 1 has J, and Player 0 has either K or Q. If Player 0 has K, they win. If Player 0 has Q, Player 1 wins. But since Player 1 doesn't know what Player 0 has, there's uncertainty.\n\nAlternatively, if Player 1 bets, then Player 0's action would be to either pass or bet. But Player 0 already passed in their turn. Wait, no. Wait, the betting happens in turns. Player 0 acted first, passing. Now it's Player 1's turn. If Player 1 bets, then Player 0's action would be to either pass or bet? Wait, no. Because after Player 0's turn, it's Player 1's turn. So, if Player 1 bets, then Player 0 has already passed. Wait, no, the betting is in turns. Let me think again.\n\nThe betting is a turn-based action. So, Player 0 goes first. They pass. Then it's Player 1's turn. If Player 1 bets, then the betting is done. Then, since Player 0 already passed, and Player 1 bet, then Player 1 would win because they bet and the other passed. Wait, no. The rules say: if a player chooses to pass after the other's bet, the betting player wins. But if both pass or both bet, then higher card wins.\n\nBut here, Player 0 passed. Then Player 1 can choose to pass or bet. If Player 1 bets, then since Player 0 already passed, then Player 1's bet would be the one that wins. Because the other player passed. Wait, no. The rule says: if a player chooses to pass after the other's bet, the betting player wins. So, if Player 0 bet and Player 1 passes, then Player 0 wins. But in this case, Player 0 passed, and Player 1 is now choosing to bet. So, if Player 1 bets, then Player 0 has already passed. So, in that case, since Player 1 bet and Player 0 passed, then Player 1 would win? Or is it that the betting is only done once?\n\nWait, maybe I'm misunderstanding the turn structure. Let me recheck the rules:\n\nEach player takes turns acting, starting with player_0. A player can choose to PASS or BET. If a player chooses to PASS after the other's BET, the betting player wins. If both PASS or both BET, the higher card wins.\n\nSo, in this case, Player 0's turn: they passed. Now it's Player 1's turn. Player 1 can choose to pass or bet. If Player 1 bets, then since Player 0 already passed, does that count as Player 1's bet? Then, since Player 0 passed, and Player 1 bet, then Player 1 would win? Because the other player passed. But the rule says that if a player chooses to pass after the other's bet, the betting player wins. So, if Player 1 bets, and Player 0 had already passed, then Player 1's bet is the one that would win. So, if Player 1 bets, then they would win regardless of Player 0's card? Wait, no. Because the rule says that if a player bets and the other passes, the bettor wins. So, in this case, Player 1 bets, and Player 0 has already passed. So, Player 1's bet would be the one that wins. So, Player 1 would win the pot.\n\nBut wait, the pot is the blind antes (2 chips) plus any bets. So, if Player 1 bets, they add 1 chip, making the pot 2 + 1 = 3 chips. Then, since Player 0 passed, Player 1 would win that pot.\n\nBut if Player 1 passes, then both passed, so the higher card wins. Since Player 1 has J, and Player 0 has either K or Q. If Player 0 has K, they win. If Player 0 has Q, Player 1 wins. But since Player 1 doesn't know what Player 0 has, there's uncertainty.\n\nSo, what's the optimal strategy here? If Player 1 bets, they can win regardless of Player 0's card. Because Player 0 already passed, and Player 1 bets, so Player 1 wins. But that's only if Player 0's card is not higher than J. Wait, but Player 0's card is either K or Q. If Player 0 has K, then they have a higher card than J, but since Player 1 bet and Player 0 passed, Player 1 would win. Wait, but according to the rules, if both players pass, the higher card wins. But if one bets and the other passes, the bettor wins. So, in this case, Player 1 bets, Player 0 passed. So, Player 1 wins regardless of their cards. Because the rule says that if one player bets and the other passes, the bettor wins. So, even if Player 0 has a higher card, Player 1 would still win because they bet and the other passed.\n\nWait, that seems counterintuitive. Let me check the rules again.\n\nRule 5: If a player chooses to <PASS> after the other player's <BET>, the betting player wins the pot.\n\nSo, if Player 0 passes, and Player 1 bets, then Player 1 is the betting player, and Player 0 passed. So, according to rule 5, the betting player (Player 1) wins. So, regardless of the cards, Player 1 would win. But that can't be right. Because if Player 0 has a higher card, maybe they would have bet, but in this case, Player 0 passed. So, in this scenario, Player 1 can bet and win, even if Player 0 has a higher card. That seems like a mistake, but according to the rules, that's how it works.\n\nBut that would mean that Player 1 can always bet here and win. But that's not possible, because if Player 0 has a higher card, they would have bet. Wait, but Player 0 passed. So, maybe Player 0 has a lower card, and passed. Or maybe Player 0 has a higher card but chose to pass. But according to the rules, the players can choose to pass or bet regardless of their cards.\n\nBut in Kuhn Poker, the optimal strategy is usually for players to bet if they have a higher card and pass if they have a lower card. But in this case, since Player 0 passed, maybe they have a lower card. But we don't know for sure.\n\nBut according to the rules, if Player 1 bets, they will win regardless of Player 0's card. Because Player 0 passed. So, in that case, Player 1 would win. Therefore, the optimal action is to bet. Because if Player 1 bets, they can win the pot. If they pass, then the winner depends on the cards, which is uncertain. So, betting is better because it ensures a win.\n\nWait, but what if Player 0 has a higher card and passed? Then, even though Player 1 bets, they would still win. But that's according to the rules. So, the rules say that if you bet and the other passes, you win. So, regardless of the cards, Player 1 would win by betting. Therefore, the optimal action is to bet.\n\nBut that seems odd. Let me think again. Suppose Player 0 has a K. They passed. Player 1 has J and bets. According to the rules, since Player 1 bet and Player 0 passed, Player 1 wins. But Player 0 has a higher card. But according to the rules, that's how it works. So, even though Player 0 has a higher card, they passed, and Player 1 bet, so Player 1 wins. So, the rules are that the bettor wins if the other passes. So, in this case, Player 1 should bet.\n\nTherefore, the correct action is to bet. So, the answer is <BET>.",
+   "answer": "<BET>",
+   "raw": "<think>\nOkay, let's try to figure out what I should do here. So, I'm Player 1 in Kuhn Poker. The game rules are a bit tricky, but let me break it down.\n\nFirst, the setup: both players start with a blind ante of 1 chip each. Then each gets a private card from the deck, which has King, Queen, Jack. The third card is unseen. So, there are three cards total, each player has one, and one is left.\n\nIn Turn 1, Player 0 went <PASS>. Now it's my turn. My card is Jack (J). The legal actions are PASS or BET. I need to decide whether to bet or pass based on my card and the current state.\n\nLet me recall the rules. If both players pass, the one with the higher card wins. If one bets and the other passes, the bettor wins. But if both bet, then the higher card wins.\n\nBut here, Player 0 passed. So, if I pass, then since both passed, the higher card wins. But I have Jack. What's Player 0's card? Wait, I don't know. Because the third card is set aside. So, the cards are: Player 0 has some card, Player 1 has Jack, and the third card is unknown. But the third card is the one that's not dealt to either player. So, the possible cards are K, Q, J. But since Player 1 has J, the other two cards are K and Q. So Player 0 has either K or Q, and the third card is the remaining one.\n\nWait, but the third card is set aside. So, the deck has three cards: K, Q, J. Each player gets one, and the third is in the middle. So, Player 0 has a card, Player 1 has J, and the third card is the remaining one. So, Player 0's card is either K or Q, and the third card is the other. But since Player 0 passed, maybe I can infer something?\n\nBut in Kuhn Poker, the players don't know each other's cards. So, I don't know what Player 0 has. But I do know that my card is J. So, if I pass, then the pot is the blind antes (2 chips total) plus any bets. But since Player 0 passed, and I pass, then the pot is 2 chips. Then, the winner is the one with the higher card. Since I have J, and Player 0 has either K or Q. If Player 0 has K, then they have higher. If they have Q, then I have higher. But since I don't know, maybe I should bet?\n\nWait, but if I bet, then Player 0 could either pass or bet. But Player 0 already passed in their turn. Wait, no. Wait, the turn order is important. Let me check again.\n\nThe game starts with both players placing 1 chip each. Then, each is dealt a card. Then, the players take turns acting, starting with Player 0. So, Turn 1 is Player 0's turn. They choose to pass. Now it's Turn 2, which is Player 1's turn. So, the betting history is that Player 0 passed. So, now, Player 1 can choose to pass or bet.\n\nIf Player 1 passes, then since both passed, the higher card wins. But since Player 1 has J, and Player 0 has either K or Q. If Player 0 has K, they win. If Player 0 has Q, Player 1 wins. But since Player 1 doesn't know what Player 0 has, there's uncertainty.\n\nAlternatively, if Player 1 bets, then Player 0's action would be to either pass or bet. But Player 0 already passed in their turn. Wait, no. Wait, the betting happens in turns. Player 0 acted first, passing. Now it's Player 1's turn. If Player 1 bets, then Player 0's action would be to either pass or bet? Wait, no. Because after Player 0's turn, it's Player 1's turn. So, if Player 1 bets, then Player 0 has already passed. Wait, no, the betting is in turns. Let me think again.\n\nThe betting is a turn-based action. So, Player 0 goes first. They pass. Then it's Player 1's turn. If Player 1 bets, then the betting is done. Then, since Player 0 already passed, and Player 1 bet, then Player 1 would win because they bet and the other passed. Wait, no. The rules say: if a player chooses to pass after the other's bet, the betting player wins. But if both pass or both bet, then higher card wins.\n\nBut here, Player 0 passed. Then Player 1 can choose to pass or bet. If Player 1 bets, then since Player 0 already passed, then Player 1's bet would be the one that wins. Because the other player passed. Wait, no. The rule says: if a player chooses to pass after the other's bet, the betting player wins. So, if Player 0 bet and Player 1 passes, then Player 0 wins. But in this case, Player 0 passed, and Player 1 is now choosing to bet. So, if Player 1 bets, then Player 0 has already passed. So, in that case, since Player 1 bet and Player 0 passed, then Player 1 would win? Or is it that the betting is only done once?\n\nWait, maybe I'm misunderstanding the turn structure. Let me recheck the rules:\n\nEach player takes turns acting, starting with player_0. A player can choose to PASS or BET. If a player chooses to PASS after the other's BET, the betting player wins. If both PASS or both BET, the higher card wins.\n\nSo, in this case, Player 0's turn: they passed. Now it's Player 1's turn. Player 1 can choose to pass or bet. If Player 1 bets, then since Player 0 already passed, does that count as Player 1's bet? Then, since Player 0 passed, and Player 1 bet, then Player 1 would win? Because the other player passed. But the rule says that if a player chooses to pass after the other's bet, the betting player wins. So, if Player 1 bets, and Player 0 had already passed, then Player 1's bet is the one that would win. So, if Player 1 bets, then they would win regardless of Player 0's card? Wait, no. Because the rule says that if a player bets and the other passes, the bettor wins. So, in this case, Player 1 bets, and Player 0 has already passed. So, Player 1's bet would be the one that wins. So, Player 1 would win the pot.\n\nBut wait, the pot is the blind antes (2 chips) plus any bets. So, if Player 1 bets, they add 1 chip, making the pot 2 + 1 = 3 chips. Then, since Player 0 passed, Player 1 would win that pot.\n\nBut if Player 1 passes, then both passed, so the higher card wins. Since Player 1 has J, and Player 0 has either K or Q. If Player 0 has K, they win. If Player 0 has Q, Player 1 wins. But since Player 1 doesn't know what Player 0 has, there's uncertainty.\n\nSo, what's the optimal strategy here? If Player 1 bets, they can win regardless of Player 0's card. Because Player 0 already passed, and Player 1 bets, so Player 1 wins. But that's only if Player 0's card is not higher than J. Wait, but Player 0's card is either K or Q. If Player 0 has K, then they have a higher card than J, but since Player 1 bet and Player 0 passed, Player 1 would win. Wait, but according to the rules, if both players pass, the higher card wins. But if one bets and the other passes, the bettor wins. So, in this case, Player 1 bets, Player 0 passed. So, Player 1 wins regardless of their cards. Because the rule says that if one player bets and the other passes, the bettor wins. So, even if Player 0 has a higher card, Player 1 would still win because they bet and the other passed.\n\nWait, that seems counterintuitive. Let me check the rules again.\n\nRule 5: If a player chooses to <PASS> after the other player's <BET>, the betting player wins the pot.\n\nSo, if Player 0 passes, and Player 1 bets, then Player 1 is the betting player, and Player 0 passed. So, according to rule 5, the betting player (Player 1) wins. So, regardless of the cards, Player 1 would win. But that can't be right. Because if Player 0 has a higher card, maybe they would have bet, but in this case, Player 0 passed. So, in this scenario, Player 1 can bet and win, even if Player 0 has a higher card. That seems like a mistake, but according to the rules, that's how it works.\n\nBut that would mean that Player 1 can always bet here and win. But that's not possible, because if Player 0 has a higher card, they would have bet. Wait, but Player 0 passed. So, maybe Player 0 has a lower card, and passed. Or maybe Player 0 has a higher card but chose to pass. But according to the rules, the players can choose to pass or bet regardless of their cards.\n\nBut in Kuhn Poker, the optimal strategy is usually for players to bet if they have a higher card and pass if they have a lower card. But in this case, since Player 0 passed, maybe they have a lower card. But we don't know for sure.\n\nBut according to the rules, if Player 1 bets, they will win regardless of Player 0's card. Because Player 0 passed. So, in that case, Player 1 would win. Therefore, the optimal action is to bet. Because if Player 1 bets, they can win the pot. If they pass, then the winner depends on the cards, which is uncertain. So, betting is better because it ensures a win.\n\nWait, but what if Player 0 has a higher card and passed? Then, even though Player 1 bets, they would still win. But that's according to the rules. So, the rules say that if you bet and the other passes, you win. So, regardless of the cards, Player 1 would win by betting. Therefore, the optimal action is to bet.\n\nBut that seems odd. Let me think again. Suppose Player 0 has a K. They passed. Player 1 has J and bets. According to the rules, since Player 1 bet and Player 0 passed, Player 1 wins. But Player 0 has a higher card. But according to the rules, that's how it works. So, even though Player 0 has a higher card, they passed, and Player 1 bet, so Player 1 wins. So, the rules are that the bettor wins if the other passes. So, in this case, Player 1 should bet.\n\nTherefore, the correct action is to bet. So, the answer is <BET>.\n</think>\n\n<answer><BET></answer>",
+   "tokens": 2472,
+   "prompt_tokens": 531,
+   "seconds": 340.2,
+   "valid": true,
+   "forfeit": null,
+   "prompt_tail": "Information of Turn-1:\n\nThis is the other player's turn. The game state for this turn is not available to you. The chosen action of the other player for this turn is provided below.\n\nCHOSEN ACTION:\n<PASS>\nInformation of Turn-2:\n\nThis is your turn. The game state and legal actions for this turn are provided below. Please choose your action and strictly follow the given output format in the response instructions.\n\nGAME STATE:\n1. Blind ante: both player_0 and player_1 place 1 chip into the pot.\n2. Deal: your card is Jack (J).\n3. Turn 1: player_0 chooses to <PASS>.\n\nLEGAL ACTIONS:\n<PASS>, <BET>.\n\n"
+  },
+  {
+   "n": 3,
+   "player": 0,
+   "by": "bot",
+   "action": "<BET>",
+   "observation": "1. Blind ante: both player_0 and player_1 place 1 chip into the pot.\n2. Deal: your card is Queen (Q).\n3. Turn 1: player_0 chooses to <PASS>.\n4. Turn 2: player_1 chooses to <BET>.",
+   "legal": [
+    "<PASS>",
+    "<BET>"
+   ],
+   "reward": 2.0,
+   "rewards": [
+    2.0,
+    -2.0
+   ],
+   "done": true,
+   "view": {
+    "type": "kuhn",
+    "cards": [
+     "Q",
+     "J"
+    ],
+    "bets": [
+     2,
+     2
+    ],
+    "pot": 4,
+    "actions": [
+     {
+      "player": 0,
+      "action": "PASS"
+     },
+     {
+      "player": 1,
+      "action": "BET"
+     },
+     {
+      "player": 0,
+      "action": "BET"
+     }
+    ],
+    "returns": [
+     2.0,
+     -2.0
+    ]
+   }
+  }
+ ],
+ "result": {
+  "info": {
+   "card_0": "Queen (Q)",
+   "card_1": "Jack (J)",
+   "player_0_return": 2.0,
+   "player_1_return": -2.0,
+   "winner": 0,
+   "player_0_lose_for_wrong_format": 0,
+   "player_1_lose_for_wrong_format": 0,
+   "player_0_lose_for_overlong_response": 0,
+   "player_1_lose_for_overlong_response": 0,
+   "player_0_lose_for_overlong_sequence": 0,
+   "player_1_lose_for_overlong_sequence": 0,
+   "player_0_success": true,
+   "player_1_success": false,
+   "draw": false,
+   "total_pot": 4.0,
+   "player_0_bet": 2.0,
+   "player_1_bet": 2.0
+  },
+  "truncated": false,
+  "winner": 0,
+  "draw": false,
+  "returns": [
+   2.0,
+   -2.0
+  ],
+  "reason": "end"
+ },
+ "turn_rewards": {
+  "0": [
+   0.0,
+   2.0
+  ],
+  "1": [
+   -2.0541
+  ]
+ },
+ "seat_keys": [
+  "bot",
+  "qwen3-4b"
+ ]
+}

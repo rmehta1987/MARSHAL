@@ -1,0 +1,228 @@
+{
+  "about": "Run ledger for the MARSHAL display. Facts come from midway_notes.md (branch midway-setup) and polaris_pbs_notes.md (branch polaris-pbs-handoff). Per-step series come from the files named in each run; Polaris runs show milestones until their results folders are copied into results/.",
+  "runs": [
+    {
+      "id": "midway-smoke-50252477",
+      "title": "Smoke test",
+      "cluster": "Midway (RCC)",
+      "scheduler": "SLURM",
+      "jid": "50252477",
+      "date": "2026-05-29",
+      "model": "Qwen2.5-0.5B-Instruct",
+      "strategy": "deepspeed_train · ZeRO-2",
+      "hardware": "4× H200 (141 GB)",
+      "steps": 3,
+      "elapsed": "6m52s",
+      "status": "GREEN",
+      "config": "examples/tictactoe/agentic_val_tictactoe_selfplay_midway_smoke.yaml",
+      "settings": {"max_new_tokens": 512, "sequence_length": 4096, "rollout_batch_size": 16},
+      "log": "logs/train_midway_50252477.out",
+      "metrics": "display/data/metrics/midway-smoke-50252477.json",
+      "results_glob": "results/tictactoe_selfplay_midway_smoke/50252477_*",
+      "proof": "checkpoint-2 written by all 4 actor_train ranks; Training exited with code: 0",
+      "summary": "First end-to-end loop on Midway, inside the official ROLL container."
+    },
+    {
+      "id": "midway-scaleup-50259767",
+      "title": "Scale-up, 20 steps",
+      "cluster": "Midway (RCC)",
+      "scheduler": "SLURM",
+      "jid": "50259767",
+      "date": "2026-05-29",
+      "model": "Qwen3-4B",
+      "strategy": "deepspeed_train · ZeRO-2",
+      "hardware": "4× H200 (141 GB)",
+      "steps": 20,
+      "elapsed": "21m02s",
+      "status": "GREEN",
+      "config": "examples/tictactoe/agentic_val_tictactoe_selfplay_midway_scaleup.yaml",
+      "settings": {"max_new_tokens": 1024, "sequence_length": 4096, "rollout_batch_size": 16},
+      "log": "logs/train_midway_50259767.out",
+      "metrics": "display/data/metrics/midway-scaleup-50259767.json",
+      "results_glob": "results/tictactoe_selfplay_midway_scaleup/50259767_*",
+      "proof": "checkpoint-19 (the 20th step) on all 4 ranks; exit 0",
+      "summary": "MARSHAL's own base model, 20 optimization steps."
+    },
+    {
+      "id": "midway-megatron-50261211",
+      "title": "Megatron path",
+      "cluster": "Midway (RCC)",
+      "scheduler": "SLURM",
+      "jid": "50261211",
+      "date": "2026-05-30",
+      "model": "Qwen3-4B",
+      "strategy": "megatron_train · TP=4, sequence parallel",
+      "hardware": "4× H200 (141 GB)",
+      "steps": 3,
+      "elapsed": "15m42s",
+      "status": "GREEN",
+      "config": "examples/tictactoe/agentic_val_tictactoe_selfplay_midway_megatron.yaml",
+      "settings": {"max_new_tokens": 1024, "sequence_length": 4096, "rollout_batch_size": 16},
+      "log": "logs/train_midway_50261211.out",
+      "metrics": "display/data/metrics/midway-megatron-50261211.json",
+      "results_glob": "results/tictactoe_selfplay_midway_megatron/50261211_*",
+      "proof": "megatron checkpoint-2/iter_0000001/mp_rank_00..03 saved; exit 0 (pipefail)",
+      "summary": "The strategy MARSHAL's real configs use, once TE attention was moved off cuDNN onto flash-attn."
+    },
+    {
+      "id": "polaris-smoke-7186746",
+      "title": "Smoke test",
+      "cluster": "Polaris (ALCF)",
+      "scheduler": "PBS",
+      "jid": "7186746",
+      "date": "2026-06-06",
+      "model": "Qwen2.5-0.5B-Instruct",
+      "strategy": "deepspeed_train · ZeRO-2",
+      "hardware": "4× A100 (40 GB)",
+      "steps": 3,
+      "elapsed": "~8 min (2m16s of training)",
+      "status": "GREEN",
+      "config": "examples/tictactoe/agentic_val_tictactoe_selfplay_polaris_smoke.yaml (branch polaris-pbs-handoff)",
+      "settings": {"max_new_tokens": 512, "sequence_length": 4096, "rollout_batch_size": 16},
+      "results_glob": "results/tictactoe_selfplay_polaris_smoke/7186746_*",
+      "proof": "pipeline complete!, 12 G checkpoint-2, TensorBoard events, exit 0",
+      "summary": "Native venv instead of a container; ten stacked fixes to get here.",
+      "milestones": {"step 2": {"actor/kl_loss": 0.00144, "actor_train/grad_norm": 1.463, "system/tps": 242.6, "env/TicTacToe/winner": 1.0}}
+    },
+    {
+      "id": "polaris-megatron-7197427",
+      "title": "Megatron 3-step smoke",
+      "cluster": "Polaris (ALCF)",
+      "scheduler": "PBS",
+      "jid": "7197427",
+      "date": "2026-06-12",
+      "model": "Qwen3-4B",
+      "strategy": "megatron_train · TP=4",
+      "hardware": "4× A100 (40 GB)",
+      "steps": 3,
+      "elapsed": "11m54s",
+      "status": "GREEN",
+      "config": "examples/tictactoe/agentic_val_tictactoe_selfplay_polaris_megatron.yaml (branch polaris-pbs-handoff)",
+      "settings": {"max_new_tokens": 1024, "sequence_length": 4096, "rollout_batch_size": 16},
+      "results_glob": "results/tictactoe_selfplay_polaris_megatron/7197427_*",
+      "proof": "megatron checkpoint mp_rank_00..03 + dist_optimizer; exit 0",
+      "summary": "Won the process-count race on the 4th try (pids.peak 4094 of 4096).",
+      "milestones": {"steps 0-2": {"actor_train/grad_norm": "1.31 → 0.71", "system/tps": "181–202"}}
+    },
+    {
+      "id": "polaris-20step-7197442",
+      "title": "Megatron 20-step proof",
+      "cluster": "Polaris (ALCF)",
+      "scheduler": "PBS",
+      "jid": "7197442",
+      "date": "2026-06-12",
+      "model": "Qwen3-4B",
+      "strategy": "megatron_train · TP=4",
+      "hardware": "4× A100 (40 GB)",
+      "steps": 20,
+      "elapsed": "37m37s",
+      "status": "GREEN",
+      "config": "examples/tictactoe/agentic_val_tictactoe_selfplay_polaris_megatron_20step.yaml (branch polaris-pbs-handoff)",
+      "settings": {"max_new_tokens": 1024, "sequence_length": 4096, "rollout_batch_size": 16},
+      "results_glob": "results/tictactoe_selfplay_polaris_megatron/7197442_*",
+      "proof": "checkpoint-9 and checkpoint-19; pipeline complete!; exit 0",
+      "summary": "RequestScheduler thread-pool patch (2048 → 256) cut peak processes from 4094 to 2313.",
+      "milestones": {"steps 0-19": {"system/tps": "up to 282"}}
+    },
+    {
+      "id": "polaris-400step-7198659",
+      "title": "400-step production run",
+      "cluster": "Polaris (ALCF)",
+      "scheduler": "PBS",
+      "jid": "7198659",
+      "date": "2026-06-13",
+      "model": "Qwen3-4B",
+      "strategy": "megatron_train · TP=4",
+      "hardware": "4× A100 (40 GB)",
+      "steps": 400,
+      "elapsed": "~13.7 h across 4 preempted runs",
+      "status": "GREEN",
+      "config": "examples/tictactoe/agentic_val_tictactoe_selfplay_polaris_megatron_long.yaml (branch polaris-pbs-handoff)",
+      "settings": {"max_new_tokens": 1024, "sequence_length": 4096, "rollout_batch_size": 16},
+      "results_glob": "results/tictactoe_selfplay_polaris_megatron_long/7198659_*",
+      "proof": "checkpoint-399 complete; pipeline step 399 finished; Exit_status 0 after resuming from checkpoint-49",
+      "summary": "Preemptable queue: survived preemptions with save_steps 25 and resume-from-checkpoint, then ran 10.8 h straight.",
+      "milestones": {
+        "critic/score/mean": [[50, -5.42], [200, -5.4], [250, -4.71], [300, -1.26], [399, -1.26]],
+        "actor/kl_loss": [[0, 0.82], [399, 0.17]],
+        "system/tps": [[0, 216], [399, 312]],
+        "env/TicTacToe/response_length_player_0": [[0, 1683], [399, 313]],
+        "env/TicTacToe/response_length_player_1": [[399, 1480]],
+        "env/TicTacToe/winner": [[0, 0.875], [399, 0.0]],
+        "actor_train/grad_norm": "between 1.2 and 29, ending near 5.9",
+        "note": "Values as written in polaris_pbs_notes.md ('Comparison to the published MARSHAL results'); the endpoints are approximate and the full curves are in the run's TensorBoard folder on Polaris."
+      }
+    }
+  ],
+  "paper": {
+    "title": "MARSHAL: Incentivizing Multi-Agent Reasoning via Self-Play with Strategic LLMs",
+    "venue": "ICLR 2026",
+    "arxiv": "2510.15414",
+    "base_model": "Qwen3-4B",
+    "headline": [
+      {"value": "+28.7%", "label": "on held-out strategic games (best case)"},
+      {"value": "+10.0%", "label": "AIME, inside multi-agent systems"},
+      {"value": "+7.6%", "label": "GPQA-Diamond, inside multi-agent systems"},
+      {"value": "+3.5%", "label": "average over all reasoning benchmarks tested"}
+    ],
+    "mechanisms": [
+      {"name": "Turn-level advantage estimator", "text": "Every move gets its own reward and advantage, so a win or a blunder late in the game is credited to the turns that caused it, not smeared over the whole trajectory."},
+      {"name": "Agent-specific advantage normalization", "text": "Each seat's advantages are normalized against that seat's own results (separate_norm_for_selfplay), because moving first or second changes what a good outcome looks like."}
+    ],
+    "games": {
+      "training": ["Tic-Tac-Toe", "Kuhn Poker", "Mini Hanabi"],
+      "held_out": ["Connect Four", "Leduc Hold'em", "Simple Hanabi"]
+    },
+    "models": [
+      {"id": "nics-efc/MARSHAL-Generalist-Qwen3-4B", "trained_on": "Tic-Tac-Toe, Kuhn Poker, Mini Hanabi"},
+      {"id": "nics-efc/MARSHAL-Tic-Tac-Toe-Qwen3-4B", "trained_on": "Tic-Tac-Toe"},
+      {"id": "nics-efc/MARSHAL-Kuhn-Poker-Qwen3-4B", "trained_on": "Kuhn Poker"},
+      {"id": "nics-efc/MARSHAL-Mini-Hanabi-Qwen3-4B", "trained_on": "Mini Hanabi"},
+      {"id": "nics-efc/MARSHAL-Generalist-Qwen3-8B", "trained_on": "Tic-Tac-Toe, Kuhn Poker, Mini Hanabi"}
+    ]
+  },
+  "drift": [
+    {"knob": "Base model", "paper": "Qwen3-4B", "bringup": "Qwen3-4B", "same": true},
+    {"knob": "Advantage estimator", "paper": "reinforce, turn-level scores", "bringup": "reinforce, turn-level scores", "same": true},
+    {"knob": "Advantage normalization", "paper": "mean, per seat", "bringup": "mean, per seat", "same": true},
+    {"knob": "Games", "paper": "Tic-Tac-Toe + Kuhn Poker + Mini Hanabi", "bringup": "Tic-Tac-Toe only", "same": false},
+    {"knob": "Trajectories per step", "paper": "128", "bringup": "16", "same": false},
+    {"knob": "Env seeds per step", "paper": "64 groups", "bringup": "2–16 groups", "same": false},
+    {"knob": "Tokens per answer", "paper": "4096", "bringup": "512–1024", "same": false},
+    {"knob": "Tokens per game (sequence)", "paper": "32768", "bringup": "4096", "same": false},
+    {"knob": "Optimization steps", "paper": "200", "bringup": "3–400", "same": false}
+  ],
+  "findings": [
+    {
+      "id": "score-is-raw",
+      "title": "The game score is raw, so it can be read directly",
+      "body": "critic/score/mean is the average over trajectories of one player's summed turn rewards, before any normalization (agentic_pipeline.compute_data_metrics: \"score 为env的reward，raw value\"). The normalized one is critic/rewards/mean. A turn earns +0.05 for a valid answer, the last turn adds +1 for a win, −1 for a loss or +0.1 for a draw, and a forfeit is −11. polaris_pbs_notes.md calls this score config-normalized; it isn't.",
+      "source": "roll/pipeline/agentic/agentic_pipeline.py, roll/agentic/rollout/env_manager.py"
+    },
+    {
+      "id": "bringup-forfeits",
+      "title": "In the Midway runs, no game got past move 2",
+      "body": "0.5B smoke: X answered in the wrong format on move 1 in every game (score −11). 4B scale-up and megatron runs, every step: X made a valid opening (~220 tokens), then O's first answer ran into the 1024-token cap (1027 tokens) before closing </answer>, so O forfeited. That is exactly the −5.475 score: (0.05 + (−11)) / 2. Steps at −2.713 are the same games with three X trajectories per O trajectory in the batch.",
+      "source": "env/TicTacToe/* per-step metrics in the three Midway logs"
+    },
+    {
+      "id": "zero-advantage",
+      "title": "Identical outcomes give no learning signal",
+      "body": "With mean normalization per seat, every X trajectory scored 0.05 and every O trajectory scored −11, so each normalized reward is 0 and so is every advantage. That is why actor/pg_loss is exactly 0 in 14 of the 20 scale-up steps; the other six sit near 0.01, driven by rounding-level reward differences (about 1e-12), not by game outcomes. The bring-up proved the plumbing; it didn't train the policy.",
+      "source": "critic/rewards/mean, critic/advantages/mean, actor/pg_loss in midway-scaleup-50259767"
+    },
+    {
+      "id": "polaris-400",
+      "title": "400 steps on Polaris: the score moved once outcomes varied",
+      "body": "Same 1024-token cap, but the score climbed from about −5.4 (through step ~200) to −1.26 by step 300 and held. Over the run X's tokens per game fell from ~1683 to ~313 while O's stayed near 1480, and the winner metric went from 0.875 (O won 7 in 8) to 0.0 (X won every game). Rough reading, assuming equal X and O trajectories: −1.26 fits about one game in four still ending in an O forfeit and the rest won outright by X. The TensorBoard folder would confirm it.",
+      "source": "milestones in polaris_pbs_notes.md; estimate is ours",
+      "estimate": true
+    },
+    {
+      "id": "paper-limits",
+      "title": "Why the bring-up can't be compared with the paper",
+      "body": "The paper reports evaluation results (win rates against fixed opponents on held-out games, and benchmark accuracy inside multi-agent systems); the bring-up recorded training diagnostics at 1/8 of the paper's trajectories per step and 1/4 of its answer length. The Arena on this display does the evaluation part on a small scale: base Qwen3-4B and the published MARSHAL checkpoint against the same opponents MARSHAL evaluates with, under the paper's token limits.",
+      "source": "README.md, examples/multi_games/agentic_val_multi_games_selfplay.yaml"
+    }
+  ]
+}

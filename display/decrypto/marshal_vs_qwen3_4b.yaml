@@ -1,0 +1,46 @@
+# Decrypto with MARSHAL: does self-play training on strategic games help in a
+# word game about reading your partner and your opponent?
+#
+# Run from the Decrypto repo (its .venv), with both Strix Halo model servers up:
+#   cd ../decrypto
+#   .venv/bin/python run.py --config-path=$MARSHAL/display/decrypto --config-name=marshal_vs_qwen3_4b
+#
+# match_encoder_decoder: the team (Alice + Bob) is one model; Eve is either model.
+# That gives the four competitive pairings of Decrypto's figure 3 for these two models.
+# Results go to results/marshal_vs_qwen3_4b/ in the Decrypto repo, where the
+# Decrypto display (python -m display.server) finds and replays them.
+
+defaults:
+  - override hydra/job_logging: disabled
+
+_target_: src.types.ExperimentConfig
+num_episodes: 4
+env_seed: [0, 1]
+model_seed: 0
+override_model_seed: true
+verbose: false
+baseline_data_dir: embedding_models/
+exp_name: marshal_vs_qwen3_4b
+confirm_include_api_models: false
+no_error_history: true
+match_encoder_decoder: true
+models:
+  - _target_: src.types.LocalModel
+    model_key: qwen3_4b
+    model_id: Qwen/Qwen3-4B
+    urls:
+      - http://localhost:8000/v1
+    temperature: 0.6
+    max_tokens: 1536
+    max_reasoning_tokens: 1024
+
+  # The published MARSHAL Generalist checkpoint: Qwen3-4B after self-play RL on
+  # Tic-Tac-Toe, Kuhn Poker and Mini Hanabi. Same settings as the base model.
+  - _target_: src.types.LocalModel
+    model_key: marshal_4b
+    model_id: nics-efc/MARSHAL-Generalist-Qwen3-4B
+    urls:
+      - http://localhost:8001/v1
+    temperature: 0.6
+    max_tokens: 1536
+    max_reasoning_tokens: 1024

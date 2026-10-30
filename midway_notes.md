@@ -447,3 +447,37 @@ Notes:
   `critic/score/mean`, `tokens/response_length/mean`, `system/tps`,
   `time/actor_train/train_step/total`), then prepend startup/exit/checkpoint
   lines with ANSI stripped (`sed -r 's/\x1b\[[0-9;]*m//g'`).
+
+---
+
+## Monitor display + what the bring-up metrics actually show (2026-10-30)
+
+Built `display/` (see `display/README.md`): a full-screen MARSHAL display for
+the AMD Strix Halo monitor, modeled on the Decrypto display. It replays MARSHAL
+games played locally with MARSHAL's own env classes and a torch-free port of
+`EnvManager`'s prompt/answer/reward logic, and has a Results screen built from
+this file's GREEN runs plus the Polaris notes (branch `polaris-pbs-handoff`).
+
+Reading the per-step `env/TicTacToe/*` metrics (the untrimmed scale-up log is
+recoverable with `git show cd016ec:logs/train_midway_50259767.out`) changes how
+the GREEN runs should be read:
+
+- `critic/score/mean` is the raw game score (sum of turn rewards: +0.05 valid
+  answer, ±1 win/loss, +0.1 draw, −11 forfeit); `critic/rewards/mean` is the
+  normalized one. (The Polaris notes call the score config-normalized; it isn't.)
+- Smoke (50252477): X forfeited on move 1 in every game (wrong format, ~45-token
+  answers) → score −11.
+- Scale-up (50259767) and megatron (50261211), every step: X made a valid first
+  move (~220 tokens), then O's first answer hit `max_new_tokens: 1024` (1027
+  tokens) before `</answer>` → O forfeited every game. −5.475 = (0.05 − 11)/2;
+  −2.713 = the same games with 12 X : 4 O trajectories in the batch.
+- With per-seat mean normalization those identical outcomes give zero advantage:
+  `actor/pg_loss` is exactly 0 in 14/20 scale-up steps. The runs proved the
+  training plumbing but carried essentially no learning signal. Any run meant to
+  learn needs the paper's limits (4096-token answers, 32768-token sequences).
+
+Local evaluation instead of paper repro: the published
+`nics-efc/MARSHAL-Generalist-Qwen3-4B` and base Qwen3-4B are served side by side
+on the Strix Halo (vLLM containers on :8001 and :8000) and play MARSHAL's
+evaluation bots under the paper's limits (`display/record_eval.sh`), plus
+Decrypto's competitive setup (`display/decrypto/marshal_vs_qwen3_4b.yaml`).

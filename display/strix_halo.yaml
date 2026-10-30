@@ -1,0 +1,45 @@
+# Players the MARSHAL display offers for live games and display.record.
+#
+# Model servers on the AMD Strix Halo machine (see display/README.md):
+#   base Qwen3-4B            -> http://localhost:8000/v1  (the Decrypto vLLM container)
+#   MARSHAL Generalist 4B    -> http://localhost:8001/v1  (container marshal-vllm)
+# Both are started with decrypto/scripts/strix_halo/serve_local_model.sh.
+
+players:
+  - key: qwen3-4b
+    kind: model
+    name: Qwen3-4B
+    url: http://localhost:8000/v1
+    model: Qwen/Qwen3-4B
+    note: The base model MARSHAL starts from.
+  - key: marshal-4b
+    kind: model
+    name: MARSHAL 4B
+    url: http://localhost:8001/v1
+    model: nics-efc/MARSHAL-Generalist-Qwen3-4B
+    note: Official MARSHAL Generalist checkpoint (Qwen3-4B after self-play on Tic-Tac-Toe, Kuhn Poker and Mini Hanabi).
+  - key: claude
+    kind: claude
+    name: Claude Opus 5.5
+    model_id: claude-opus-5-5
+    effort: low
+  - key: human
+    kind: human
+    name: Human
+  - key: bot
+    kind: bot
+    name: Built-in bot
+
+# Sampling and limits from the paper config (examples/multi_games/agentic_val_multi_games_selfplay.yaml).
+# The Midway/Polaris bring-up runs used max_new_tokens 1024 and sequence_length 4096.
+generation:
+  temperature: 0.6
+  top_p: 0.99
+  top_k: 100
+  max_new_tokens: 4096
+  sequence_length: 32768
+
+# What the live-game setup screen starts with.
+defaults:
+  game: tictactoe
+  seats: [human, marshal-4b]

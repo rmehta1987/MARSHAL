@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>MARSHAL Arena</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<div class="app" id="app">
+
+  <header class="top">
+    <div class="brand">
+      <img class="mascot" src="/static/mascot.png" alt="">
+      <span class="wordmark">MARSHAL</span>
+    </div>
+    <nav class="scenes" aria-label="Screens">
+      <button type="button" class="scene-tab" data-scene="arena" aria-pressed="true">Arena</button>
+      <button type="button" class="scene-tab" data-scene="results" aria-pressed="false">Results</button>
+    </nav>
+    <div class="context" id="context"></div>
+    <span class="mode-badge" id="mode-badge">Replay</span>
+  </header>
+
+  <main class="stage">
+    <!-- Arena: a game, move by move -->
+    <section class="scene arena" id="scene-arena" aria-label="Game">
+      <aside class="seat" data-seat="0" id="seat-0"></aside>
+      <section class="table" aria-label="Table">
+        <div class="game-head">
+          <h1 class="game-title" id="game-title">MARSHAL</h1>
+          <span class="split" id="game-split"></span>
+          <span class="family" id="game-family"></span>
+        </div>
+        <div class="board-wrap"><div class="board" id="board"></div></div>
+        <p class="narration" id="narration" aria-live="polite"></p>
+        <ol class="move-strip" id="move-strip" aria-label="Moves"></ol>
+        <details class="prompt" id="prompt" open>
+          <summary><span id="prompt-title">What the player is told this turn</span></summary>
+          <pre class="prompt-text" id="prompt-text"></pre>
+        </details>
+      </section>
+      <aside class="seat" data-seat="1" id="seat-1"></aside>
+    </section>
+
+    <!-- Results: training runs, the arena evaluation, and what they mean -->
+    <section class="scene results" id="scene-results" aria-label="Results" hidden>
+      <nav class="slide-tabs" id="slide-tabs" aria-label="Results pages"></nav>
+      <div class="slides" id="slides"></div>
+    </section>
+  </main>
+
+  <footer class="bottom" id="bottom">
+    <div class="progress"><span id="progress-bar"></span></div>
+    <span class="source" id="source"></span>
+    <span class="keys">
+      <kbd>Space</kbd> pause <kbd>←</kbd><kbd>→</kbd> step <kbd>N</kbd> next <kbd>R</kbd> results
+      <kbd>G</kbd> games <kbd>F</kbd> full screen <kbd>?</kbd> help
+    </span>
+    <button type="button" class="btn small" id="btn-games">Games</button>
+    <button type="button" class="btn small primary" id="btn-live" hidden>Live game</button>
+  </footer>
+
+  <div class="overlay card-overlay" id="intro" hidden></div>
+  <div class="overlay card-overlay" id="end" hidden></div>
+
+  <div class="overlay sheet" id="picker" hidden>
+    <div class="sheet-card">
+      <div class="sheet-head">
+        <h2>Saved games</h2>
+        <input type="search" id="picker-filter" placeholder="Filter: game, model, eval, live…" aria-label="Filter games">
+        <button type="button" class="btn small" data-close>Close</button>
+      </div>
+      <ol class="picker-list" id="picker-list"></ol>
+    </div>
+  </div>
+
+  <div class="overlay sheet" id="setup" hidden>
+    <form class="sheet-card setup-card" id="setup-form">
+      <div class="sheet-head">
+        <h2>Start a live game</h2>
+        <button type="button" class="btn small" data-close>Close</button>
+      </div>
+      <p class="lede">Pick a game and who sits in each seat. Choose Human to play a seat yourself on this screen.
+        Models get exactly the prompt MARSHAL trained them on.</p>
+      <label class="field">Game <select id="setup-game"></select></label>
+      <div class="setup-seats">
+        <label class="field"><span><i class="dot seat0"></i> Seat 0 · moves first</span><select id="setup-seat-0"></select></label>
+        <label class="field"><span><i class="dot seat1"></i> Seat 1</span><select id="setup-seat-1"></select></label>
+      </div>
+      <label class="field small">Deal / seed <input type="number" id="setup-seed" min="0" placeholder="random"></label>
+      <p class="setup-note" id="setup-note"></p>
+      <p class="form-error" id="setup-error" role="alert"></p>
+      <div class="setup-actions"><button type="submit" class="btn primary" id="setup-start">Start game</button></div>
+    </form>
+  </div>
+
+  <form class="dock" id="dock" hidden></form>
+
+  <div class="overlay sheet" id="help" hidden>
+    <div class="sheet-card help-card">
+      <div class="sheet-head"><h2>Controls</h2><button type="button" class="btn small" data-close>Close</button></div>
+      <dl class="help-keys">
+        <dt><kbd>Space</kbd></dt><dd>Pause or resume</dd>
+        <dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>Step through the game, or page through Results</dd>
+        <dt><kbd>N</kbd></dt><dd>Next game</dd>
+        <dt><kbd>R</kbd> / <kbd>A</kbd></dt><dd>Results / Arena</dd>
+        <dt><kbd>G</kbd></dt><dd>Choose a saved game</dd>
+        <dt><kbd>L</kbd></dt><dd>Start a live game (server started with --live)</dd>
+        <dt><kbd>P</kbd></dt><dd>Show or hide what the player is told</dd>
+        <dt><kbd>+</kbd> <kbd>−</kbd></dt><dd>Faster or slower playback</dd>
+        <dt><kbd>H</kbd></dt><dd>Hide the footer</dd>
+        <dt><kbd>F</kbd></dt><dd>Full screen</dd>
+      </dl>
+      <p class="help-note">Address options: <code>?speed=1.5</code>, <code>?scene=results</code>, <code>?slide=arena</code>,
+        <code>?game=&lt;id&gt;</code>, <code>?filter=connect</code>, <code>?tour=0</code> (stay on one screen), <code>?shuffle=0</code>.</p>
+    </div>
+  </div>
+</div>
+<div class="tooltip" id="tooltip" role="status" hidden></div>
+<script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,258 @@
+{
+ "format": "marshal-game/1",
+ "id": "leduc_poker-20261030-120858-0679be",
+ "game": "leduc_poker",
+ "title": "Leduc Hold'em",
+ "family": "Competitive · imperfect information",
+ "split": "held-out",
+ "seed": 7,
+ "env_options": {
+  "built_in_opponent": "ne",
+  "opponent_player": 0
+ },
+ "settings": {
+  "sequence_length": 32768,
+  "max_new_tokens": 4096,
+  "format_penalty": 0.05
+ },
+ "players": [
+  {
+   "kind": "bot",
+   "name": "Nash-equilibrium bot",
+   "seat": 0,
+   "mark": "P0"
+  },
+  {
+   "kind": "model",
+   "name": "Qwen3-4B",
+   "model": "Qwen/Qwen3-4B",
+   "sampling": {
+    "temperature": 0.6,
+    "top_p": 0.99,
+    "top_k": 100
+   },
+   "note": "The base model MARSHAL starts from.",
+   "seat": 1,
+   "mark": "P1"
+  }
+ ],
+ "prompts": {
+  "1": {
+   "system": "You are an AI agent that makes optimal decisions to win in the game of Leduc Poker.",
+   "user": "GAME RULES:\n1. Leduc poker is a two-player card game. The deck includes only six cards: two pairs of King (K), Queen (Q), and Jack (J).\n2. At the start of each game, both player_0 and player_1 place 1 chip into the pot as a blind ante.\n3. Each player is dealt one private card from the deck, and the remaining cards are set aside unseen.\n4. The game has two betting rounds. When the first round ends, one public card from the remaining cards of the deck is revealed to both players.\n5. The two players take turns acting in the betting rounds, both starting with player_0. A player can choose to:\n    a. <FOLD>: stop betting and the other player wins the pot.\n    b. <CALL>: match the current bet. If no bet has been made in the current round, this is equivalent to checking.\n    c. <RAISE>: first match the current bet and then add `n` chips to the bet, where `n=2` in the first round and `n=4` in the second round. If no bet has been made in the current round, this is equivalent to betting `n` chips.\n6. A maximum of two <RAISE>s are allowed in each round. Each round ends when both players have acted and their bets are equal.\n7. If a player chooses to <FOLD>, the other player wins the pot.\n8. If neither player chooses to <FOLD>, the second round ends with a showdown:\n    a. If a player has a pair (private card = public card), the player wins the pot.\n    b. If neither player has a pair, the player with the higher card (K > Q > J) wins the pot.\n    c. If two players have the same card, the players split the pot.\n\nPLAYER INFORMATION:\n1. You are player_1. You are competing with player_0.\n2. In each of your turns:\n   a. The game state shows your private card, public card (if revealed), and the betting history.\n   b. You need to choose an action based on your cards and the current game state.\n   c. All legal actions for the current turn are provided in the format of `<FOLD>`, `<CALL>`, or `<RAISE>`.\n\nRESPONSE INSTRUCTIONS:\nAlways choose only one action from the legal actions and output `<answer>{your chosen action}</answer>` with no extra text after you finish the thinking process. For example, `<answer><CALL></answer>`. Strictly follow the above format and keep your thinking process concise. Responses that do not follow the format will result in immediate loss of the game.\n\n"
+  }
+ },
+ "source": "eval",
+ "started": "2026-10-30T17:08:58+00:00",
+ "finished": "2026-10-30T17:13:56+00:00",
+ "initial": {
+  "observation": "1. Blind ante: both player_0 and player_1 place 1 chip into the pot.\n2. Deal: your card is J.",
+  "view": {
+   "type": "leduc",
+   "round": 1,
+   "pot": 2,
+   "money": [
+    99,
+    99
+   ],
+   "public": null,
+   "cards": [
+    "J",
+    "K"
+   ],
+   "sequences": [
+    [],
+    []
+   ],
+   "bets": [
+    1,
+    1
+   ]
+  }
+ },
+ "moves": [
+  {
+   "n": 1,
+   "player": 0,
+   "by": "bot",
+   "action": "<CALL>",
+   "observation": "1. Blind ante: both player_0 and player_1 place 1 chip into the pot.\n2. Deal: your card is J.",
+   "legal": [
+    "<CALL>",
+    "<RAISE>"
+   ],
+   "reward": 0.0,
+   "rewards": [
+    0.0,
+    0.0
+   ],
+   "done": false,
+   "view": {
+    "type": "leduc",
+    "round": 1,
+    "pot": 2,
+    "money": [
+     99,
+     99
+    ],
+    "public": null,
+    "cards": [
+     "J",
+     "K"
+    ],
+    "sequences": [
+     [
+      "Call"
+     ],
+     []
+    ],
+    "bets": [
+     1,
+     1
+    ]
+   }
+  },
+  {
+   "n": 2,
+   "player": 1,
+   "by": "model",
+   "action": "<RAISE>",
+   "observation": "1. Blind ante: both player_0 and player_1 place 1 chip into the pot.\n2. Deal: your card is K.\n4. First betting round:\n    a. Turn 1: player_0 chooses to <CALL> (+0 chips).",
+   "legal": [
+    "<CALL>",
+    "<RAISE>"
+   ],
+   "reward": 0.018826705940108004,
+   "rewards": [
+    0.0,
+    0.0
+   ],
+   "done": false,
+   "view": {
+    "type": "leduc",
+    "round": 1,
+    "pot": 4,
+    "money": [
+     99,
+     97
+    ],
+    "public": null,
+    "cards": [
+     "J",
+     "K"
+    ],
+    "sequences": [
+     [
+      "Call",
+      "Raise"
+     ],
+     []
+    ],
+    "bets": [
+     1,
+     3
+    ]
+   },
+   "think": "Okay, let me try to figure out what to do here. So, I'm player_1, and in the first betting round, player_0 called. My private card is a King. The game state says that after the blind antes, each player has 1 chip in the pot. Then, in the first betting round, player_0 called. Since it's my turn now, I need to decide whether to call, raise, or fold. But the legal actions are only call and raise.\n\nWait, the first betting round: the initial bet is 1 chip from the blind ante. Player_0 called, which means they matched the current bet. Since there's no previous bet in the round, maybe the initial bet is 1 chip, and player_0 called, so they added 1 chip? Or maybe the blind ante is already part of the pot, and the first betting round is where players can bet. Let me think again.\n\nThe rules say that each player starts with 1 chip in the pot as a blind ante. Then, during the first betting round, players can bet. The first round starts with player_0 acting. The initial bet is 0, so when player_0 called, that's equivalent to checking. Wait, no. Wait, the rules say that if no bet has been made in the current round, calling is equivalent to checking. But in this case, the initial bet is the blind ante. Wait, maybe the blind ante is part of the pot, but the betting rounds are separate. Let me check the rules again.\n\nRule 5 says that during the betting rounds, players can choose to fold, call, or raise. The initial bet is the blind ante. So in the first betting round, the initial bet is 1 chip (from the blind ante). Then, player_0's action was to call. But since the initial bet is already there, maybe the first round starts with the blind antes, and then players can bet. Wait, maybe the first betting round is after the blind antes. So the first round starts with both players having already put in 1 chip each. Then, during the first betting round, players can bet. So if player_0 called, that would mean they matched the current bet. But since the current bet is 1 (from the blind ante), maybe player_0 called, adding 1 chip to the pot? Wait, no. The initial bet is the blind ante, which is 1 chip each. So the pot starts with 2 chips (1 each). Then, during the first betting round, players can bet. If player_0 called, that would mean they match the current bet. But if there's no previous bet in the round, then calling is equivalent to checking. Wait, maybe the first round starts with the pot at 2 chips (from the blinds). Then, player_0's action is to call, which would mean they add 0 chips, so they just check? Or maybe the first round is where players can bet. Let me clarify.\n\nThe problem says that in the first betting round, player_0 chose to call. So, in the first betting round, the current bet is 0. Because the blinds are already in the pot. So when player_0 called, that's equivalent to checking. But maybe the initial bet is 1 chip, so the current bet is 1. Wait, I'm confused. Let me think again.\n\nThe blind ante is 1 chip each. So the pot starts with 2 chips. Then, the first betting round starts. The first player (player_0) can choose to fold, call, or raise. If they call, that would mean matching the current bet. But if there's no bet yet, then calling is equivalent to checking. Wait, but the blinds are already in the pot. So perhaps the first betting round is where players can bet. So the initial bet in the round is 0. So player_0's action is to call, which would be equivalent to checking. So the bet remains at 0. Then, it's my turn. The legal actions are call and raise. So I can either call (check) or raise.\n\nBut what's the current bet? Since player_0 called, which in this case is equivalent to checking. So the current bet is 0. So if I call, that's 0. If I raise, I add 2 chips (since it's the first round). So the raise would be 2 chips. So the pot would be 2 (from blinds) + 2 (my raise) = 4. But wait, the initial bet is 0, so raising would be adding 2 chips. So the total bet would be 2. But the pot starts with 2 from the blinds. So after my raise, the pot would be 2 (blinds) + 2 (my raise) = 4. But player_0 has already called, which in this case is 0. So the current bet is 0, and I can raise to 2. Then, after that, the round ends when both players have acted. So if I raise, player_0 would have to call or raise again. But the rules say that each round can have a maximum of two raises. So if I raise, player_0 can raise again, but maybe that's not possible here. Wait, the problem says that in the first round, the maximum number of raises is 2. But in this case, player_0 has already called (which is equivalent to checking). So if I raise, that's the first raise. Then, player_0 can raise again, which would be the second raise. But maybe the rules are that each player can raise once per round. Or that the total number of raises in the round is two. I'm not sure. But the problem says that each round ends when both players have acted and their bets are equal. So if I raise, then player_0 can either call or raise again. But since the current bet is 0, and I raised to 2, then player_0 can call (matching 2) or raise again (adding 2, making it 4). But the maximum raises per round are two. So in this case, if I raise, and player_0 raises again, that's two raises. Then the round ends.\n\nBut in this case, it's my turn. The game state says that the legal actions are call and raise. So I need to decide whether to call or raise. Let's think about my cards. My private card is a King. The public card is not yet revealed. Wait, the game state says that the first betting round is happening, and the public card is not yet revealed. Wait, the game state in turn 2 says that it's the first betting round. Then, after the first betting round, a public card is revealed. So in this case, during the first betting round, there is no public card yet. So the only thing I know is my private card is K, and player_0's card is unknown. But player_0 called in the first round. So I need to decide whether to call or raise.\n\nIf I call, then the bet remains at 0. Then, after the first round ends, the public card is revealed. Then, the second betting round happens. But if I raise, I add 2 chips. Then, player_0 can either call or raise again. But if I raise, maybe I can get a better position. But since I have a King, which is a high card, maybe I should raise to show strength. But I don't know player_0's card. If player_0 has a higher card, they might have a better hand. But since the public card is not yet revealed, maybe I should raise to get more info.\n\nAlternatively, if I call, then after the first round, the public card is revealed. If it's a high card, like K, then I have a pair. But if it's lower, then I might have a better hand. But I'm not sure. Since the public card is not yet revealed, maybe raising is a better move to put pressure on player_0. But I need to consider that if I raise, player_0 might have a higher card and could raise again. But since the maximum raises are two, maybe it's possible.\n\nAlternatively, if I call, then the first round ends, and the public card is revealed. Let's say the public card is a K. Then, I have a pair (my K and the public K), so I win. If the public card is Q, then I have a K, which is higher than Q. If it's J, same. If the public card is a K, then I have a pair. If it's a Q or J, I have a higher card. So maybe calling is safe, but I don't know. Alternatively, if I raise, then I might be able to get more info. But if I raise, player_0 may have a better hand. But since I have a K, which is a high card, maybe I should raise.\n\nBut in the first betting round, the current bet is 0. If I call, that's 0. If I raise, that's 2. So the pot would be 2 (blinds) + 2 (my raise) = 4. Then, player_0 can either call (matching 2) or raise again (adding 2, making it 4). If player_0 raises again, then the pot would be 4 + 2 = 6. But then, the round ends when both players have acted and their bets are equal. So if I raise to 2, and player_0 raises again to 4, then the pot is 6. Then, the second round would start. But maybe that's not necessary. Alternatively, if player_0 calls my raise, then the pot is 4, and the first round ends. Then, the public card is revealed. So if I raise, I might be able to get more info. But I don't know what player_0's card is. However, since I have a K, which is a high card, I might want to show strength. So maybe raising is the better move here.\n\nTherefore, I should choose to raise.",
+   "answer": "<RAISE>",
+   "raw": "<think>\nOkay, let me try to figure out what to do here. So, I'm player_1, and in the first betting round, player_0 called. My private card is a King. The game state says that after the blind antes, each player has 1 chip in the pot. Then, in the first betting round, player_0 called. Since it's my turn now, I need to decide whether to call, raise, or fold. But the legal actions are only call and raise.\n\nWait, the first betting round: the initial bet is 1 chip from the blind ante. Player_0 called, which means they matched the current bet. Since there's no previous bet in the round, maybe the initial bet is 1 chip, and player_0 called, so they added 1 chip? Or maybe the blind ante is already part of the pot, and the first betting round is where players can bet. Let me think again.\n\nThe rules say that each player starts with 1 chip in the pot as a blind ante. Then, during the first betting round, players can bet. The first round starts with player_0 acting. The initial bet is 0, so when player_0 called, that's equivalent to checking. Wait, no. Wait, the rules say that if no bet has been made in the current round, calling is equivalent to checking. But in this case, the initial bet is the blind ante. Wait, maybe the blind ante is part of the pot, but the betting rounds are separate. Let me check the rules again.\n\nRule 5 says that during the betting rounds, players can choose to fold, call, or raise. The initial bet is the blind ante. So in the first betting round, the initial bet is 1 chip (from the blind ante). Then, player_0's action was to call. But since the initial bet is already there, maybe the first round starts with the blind antes, and then players can bet. Wait, maybe the first betting round is after the blind antes. So the first round starts with both players having already put in 1 chip each. Then, during the first betting round, players can bet. So if player_0 called, that would mean they matched the current bet. But since the current bet is 1 (from the blind ante), maybe player_0 called, adding 1 chip to the pot? Wait, no. The initial bet is the blind ante, which is 1 chip each. So the pot starts with 2 chips (1 each). Then, during the first betting round, players can bet. If player_0 called, that would mean they match the current bet. But if there's no previous bet in the round, then calling is equivalent to checking. Wait, maybe the first round starts with the pot at 2 chips (from the blinds). Then, player_0's action is to call, which would mean they add 0 chips, so they just check? Or maybe the first round is where players can bet. Let me clarify.\n\nThe problem says that in the first betting round, player_0 chose to call. So, in the first betting round, the current bet is 0. Because the blinds are already in the pot. So when player_0 called, that's equivalent to checking. But maybe the initial bet is 1 chip, so the current bet is 1. Wait, I'm confused. Let me think again.\n\nThe blind ante is 1 chip each. So the pot starts with 2 chips. Then, the first betting round starts. The first player (player_0) can choose to fold, call, or raise. If they call, that would mean matching the current bet. But if there's no bet yet, then calling is equivalent to checking. Wait, but the blinds are already in the pot. So perhaps the first betting round is where players can bet. So the initial bet in the round is 0. So player_0's action is to call, which would be equivalent to checking. So the bet remains at 0. Then, it's my turn. The legal actions are call and raise. So I can either call (check) or raise.\n\nBut what's the current bet? Since player_0 called, which in this case is equivalent to checking. So the current bet is 0. So if I call, that's 0. If I raise, I add 2 chips (since it's the first round). So the raise would be 2 chips. So the pot would be 2 (from blinds) + 2 (my raise) = 4. But wait, the initial bet is 0, so raising would be adding 2 chips. So the total bet would be 2. But the pot starts with 2 from the blinds. So after my raise, the pot would be 2 (blinds) + 2 (my raise) = 4. But player_0 has already called, which in this case is 0. So the current bet is 0, and I can raise to 2. Then, after that, the round ends when both players have acted. So if I raise, player_0 would have to call or raise again. But the rules say that each round can have a maximum of two raises. So if I raise, player_0 can raise again, but maybe that's not possible here. Wait, the problem says that in the first round, the maximum number of raises is 2. But in this case, player_0 has already called (which is equivalent to checking). So if I raise, that's the first raise. Then, player_0 can raise again, which would be the second raise. But maybe the rules are that each player can raise once per round. Or that the total number of raises in the round is two. I'm not sure. But the problem says that each round ends when both players have acted and their bets are equal. So if I raise, then player_0 can either call or raise again. But since the current bet is 0, and I raised to 2, then player_0 can call (matching 2) or raise again (adding 2, making it 4). But the maximum raises per round are two. So in this case, if I raise, and player_0 raises again, that's two raises. Then the round ends.\n\nBut in this case, it's my turn. The game state says that the legal actions are call and raise. So I need to decide whether to call or raise. Let's think about my cards. My private card is a King. The public card is not yet revealed. Wait, the game state says that the first betting round is happening, and the public card is not yet revealed. Wait, the game state in turn 2 says that it's the first betting round. Then, after the first betting round, a public card is revealed. So in this case, during the first betting round, there is no public card yet. So the only thing I know is my private card is K, and player_0's card is unknown. But player_0 called in the first round. So I need to decide whether to call or raise.\n\nIf I call, then the bet remains at 0. Then, after the first round ends, the public card is revealed. Then, the second betting round happens. But if I raise, I add 2 chips. Then, player_0 can either call or raise again. But if I raise, maybe I can get a better position. But since I have a King, which is a high card, maybe I should raise to show strength. But I don't know player_0's card. If player_0 has a higher card, they might have a better hand. But since the public card is not yet revealed, maybe I should raise to get more info.\n\nAlternatively, if I call, then after the first round, the public card is revealed. If it's a high card, like K, then I have a pair. But if it's lower, then I might have a better hand. But I'm not sure. Since the public card is not yet revealed, maybe raising is a better move to put pressure on player_0. But I need to consider that if I raise, player_0 might have a higher card and could raise again. But since the maximum raises are two, maybe it's possible.\n\nAlternatively, if I call, then the first round ends, and the public card is revealed. Let's say the public card is a K. Then, I have a pair (my K and the public K), so I win. If the public card is Q, then I have a K, which is higher than Q. If it's J, same. If the public card is a K, then I have a pair. If it's a Q or J, I have a higher card. So maybe calling is safe, but I don't know. Alternatively, if I raise, then I might be able to get more info. But if I raise, player_0 may have a better hand. But since I have a K, which is a high card, maybe I should raise.\n\nBut in the first betting round, the current bet is 0. If I call, that's 0. If I raise, that's 2. So the pot would be 2 (blinds) + 2 (my raise) = 4. Then, player_0 can either call (matching 2) or raise again (adding 2, making it 4). If player_0 raises again, then the pot would be 4 + 2 = 6. But then, the round ends when both players have acted and their bets are equal. So if I raise to 2, and player_0 raises again to 4, then the pot is 6. Then, the second round would start. But maybe that's not necessary. Alternatively, if player_0 calls my raise, then the pot is 4, and the first round ends. Then, the public card is revealed. So if I raise, I might be able to get more info. But I don't know what player_0's card is. However, since I have a K, which is a high card, I might want to show strength. So maybe raising is the better move here.\n\nTherefore, I should choose to raise.\n</think>\n\n<answer><RAISE></answer>",
+   "tokens": 2175,
+   "prompt_tokens": 752,
+   "seconds": 298.3,
+   "valid": true,
+   "forfeit": null,
+   "prompt_tail": "Information of Turn-1:\n\nThis is the other player's turn. The game state for this turn is not available to you. The chosen action of the other player for this turn is provided below.\n\nCHOSEN ACTION:\n<CALL>\nInformation of Turn-2:\n\nThis is your turn. The game state and legal actions for this turn are provided below. Please choose your action and strictly follow the given output format in the response instructions.\n\nGAME STATE:\n1. Blind ante: both player_0 and player_1 place 1 chip into the pot.\n2. Deal: your card is K.\n4. First betting round:\n    a. Turn 1: player_0 chooses to <CALL> (+0 chips).\n\nLEGAL ACTIONS:\n<CALL>, <RAISE>.\n\n"
+  },
+  {
+   "n": 3,
+   "player": 0,
+   "by": "bot",
+   "action": "<FOLD>",
+   "observation": "1. Blind ante: both player_0 and player_1 place 1 chip into the pot.\n2. Deal: your card is J.\n4. First betting round:\n    a. Turn 1: player_0 chooses to <CALL> (+0 chips).\n    b. Turn 2: player_1 chooses to <RAISE> (+2 chips).",
+   "legal": [
+    "<FOLD>",
+    "<CALL>",
+    "<RAISE>"
+   ],
+   "reward": -1.0,
+   "rewards": [
+    -1.0,
+    1.0
+   ],
+   "done": true,
+   "view": {
+    "type": "leduc",
+    "round": 1,
+    "pot": 4,
+    "money": [
+     99,
+     101
+    ],
+    "public": null,
+    "cards": [
+     "J",
+     "K"
+    ],
+    "sequences": [
+     [
+      "Call",
+      "Raise",
+      "Fold"
+     ],
+     []
+    ],
+    "bets": [
+     1,
+     3
+    ],
+    "returns": [
+     -1.0,
+     1.0
+    ]
+   }
+  }
+ ],
+ "result": {
+  "info": {
+   "card_0": "J",
+   "card_1": "K",
+   "public_card": "K",
+   "player_0_return": -1.0,
+   "player_1_return": 1.0,
+   "winner": 1,
+   "player_0_lose_for_wrong_format": 0,
+   "player_1_lose_for_wrong_format": 0,
+   "player_0_lose_for_overlong_response": 0,
+   "player_1_lose_for_overlong_response": 0,
+   "player_0_lose_for_overlong_sequence": 0,
+   "player_1_lose_for_overlong_sequence": 0,
+   "player_0_success": false,
+   "player_1_success": true,
+   "draw": false,
+   "total_pot": 0.0,
+   "player_0_bet": 1.0,
+   "player_1_bet": -1.0
+  },
+  "truncated": false,
+  "winner": 1,
+  "draw": false,
+  "returns": [
+   -1.0,
+   1.0
+  ],
+  "reason": "end"
+ },
+ "turn_rewards": {
+  "0": [
+   0.0,
+   -1.0
+  ],
+  "1": [
+   1.0188
+  ]
+ },
+ "seat_keys": [
+  "bot",
+  "qwen3-4b"
+ ]
+}

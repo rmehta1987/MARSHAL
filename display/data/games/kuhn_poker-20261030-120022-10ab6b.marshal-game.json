@@ -1,0 +1,238 @@
+{
+ "format": "marshal-game/1",
+ "id": "kuhn_poker-20261030-120022-10ab6b",
+ "game": "kuhn_poker",
+ "title": "Kuhn Poker",
+ "family": "Competitive · imperfect information",
+ "split": "training",
+ "seed": 9,
+ "env_options": {
+  "built_in_opponent": "cfr",
+  "opponent_player": 0
+ },
+ "settings": {
+  "sequence_length": 32768,
+  "max_new_tokens": 4096,
+  "format_penalty": 0.05
+ },
+ "players": [
+  {
+   "kind": "bot",
+   "name": "CFR equilibrium bot",
+   "seat": 0,
+   "mark": "P0"
+  },
+  {
+   "kind": "model",
+   "name": "MARSHAL 4B",
+   "model": "nics-efc/MARSHAL-Generalist-Qwen3-4B",
+   "sampling": {
+    "temperature": 0.6,
+    "top_p": 0.99,
+    "top_k": 100
+   },
+   "note": "Official MARSHAL Generalist checkpoint (Qwen3-4B after self-play on Tic-Tac-Toe, Kuhn Poker and Mini Hanabi).",
+   "seat": 1,
+   "mark": "P1"
+  }
+ ],
+ "prompts": {
+  "1": {
+   "system": "You are an AI agent that makes optimal decisions to win in the game of Kuhn Poker.",
+   "user": "GAME RULES:\n1. Kuhn poker is a two-player card game. The deck includes only three cards: King (K) > Queen (Q) > Jack (J).\n2. At the start of each game, both player_0 and player_1 place 1 chip into the pot as a blind ante.\n3. Each player is dealt a private card, and the third card is set aside unseen.\n4. The two players take turns acting, starting with player_0. A player can choose to:\n    a. <PASS>: place no additional chips into the pot.\n    b. <BET>: place 1 additional chip into the pot.\n5. If a player chooses to <PASS> after the other player's <BET>, the betting player wins the pot.\n6. If both players choose to <PASS> or both players choose to <BET>, the player with the higher card wins the pot.\n\nPLAYER INFORMATION:\n1. You are player_1. You are competing with player_0.\n2. In each of your turns:\n   a. The game state shows your private card and the betting history.\n   b. You need to choose an action based on your card and the current game state.\n   c. All legal actions for the current turn are provided in the format of `<PASS>` or `<BET>`.\n\nRESPONSE INSTRUCTIONS:\nAlways choose only one action from the legal actions and output `<answer>{your chosen action}</answer>` with no extra text after you finish the thinking process. For example, `<answer><PASS></answer>`. Strictly follow the above format and keep your thinking process concise. Responses that do not follow the format will result in immediate loss of the game.\n\n"
+  }
+ },
+ "source": "eval",
+ "started": "2026-10-30T17:00:22+00:00",
+ "finished": "2026-10-30T17:04:02+00:00",
+ "initial": {
+  "observation": "1. Blind ante: both player_0 and player_1 place 1 chip into the pot.\n2. Deal: your card is Queen (Q).",
+  "view": {
+   "type": "kuhn",
+   "cards": [
+    "Q",
+    "J"
+   ],
+   "bets": [
+    1,
+    1
+   ],
+   "pot": 2,
+   "actions": []
+  }
+ },
+ "moves": [
+  {
+   "n": 1,
+   "player": 0,
+   "by": "bot",
+   "action": "<PASS>",
+   "observation": "1. Blind ante: both player_0 and player_1 place 1 chip into the pot.\n2. Deal: your card is Queen (Q).",
+   "legal": [
+    "<PASS>",
+    "<BET>"
+   ],
+   "reward": 0.0,
+   "rewards": [
+    0.0,
+    0.0
+   ],
+   "done": false,
+   "view": {
+    "type": "kuhn",
+    "cards": [
+     "Q",
+     "J"
+    ],
+    "bets": [
+     1,
+     1
+    ],
+    "pot": 2,
+    "actions": [
+     {
+      "player": 0,
+      "action": "PASS"
+     }
+    ]
+   }
+  },
+  {
+   "n": 2,
+   "player": 1,
+   "by": "model",
+   "action": "<BET>",
+   "observation": "1. Blind ante: both player_0 and player_1 place 1 chip into the pot.\n2. Deal: your card is Jack (J).\n3. Turn 1: player_0 chooses to <PASS>.",
+   "legal": [
+    "<PASS>",
+    "<BET>"
+   ],
+   "reward": 0.05,
+   "rewards": [
+    0.0,
+    0.0
+   ],
+   "done": false,
+   "view": {
+    "type": "kuhn",
+    "cards": [
+     "Q",
+     "J"
+    ],
+    "bets": [
+     1,
+     2
+    ],
+    "pot": 3,
+    "actions": [
+     {
+      "player": 0,
+      "action": "PASS"
+     },
+     {
+      "player": 1,
+      "action": "BET"
+     }
+    ]
+   },
+   "think": "Okay, let's try to figure out what to do here. So, in Kuhn Poker, each player starts with a blind ante of 1 chip. Then they get a private card from the deck which has three cards: King, Queen, Jack. The third card is unseen. \n\nIn this scenario, it's my turn (player_1). The game state says that my card is Jack (J). The previous turn, player_0 chose to pass. So, the betting history is that player_0 passed. The legal actions now are PASS or BET.\n\nFirst, I need to recall the rules. If both players pass or both bet, the one with the higher card wins. If one bets and the other passes, the bettor wins. But since player_0 passed, I need to decide whether to bet or pass.\n\nBut wait, what's the current state? The blinds are already in. Player_0 passed, so the pot has 2 chips (each Blind ante is 1, total 2). Now, I can choose to bet or pass. If I bet, I add 1 chip, making the pot 3. If I pass, the pot remains at 2.\n\nBut what's my card? I have Jack. The third card is unseen. So, the possible cards are K, Q, J. Since I have J, the other player has either K or Q. Wait, no. Wait, the deck has three cards: K, Q, J. Each player gets one, and the third is set aside. So, if I have J, then the other player has either K or Q, and the third card is the remaining one. So, player_0 has a card, which is either K or Q, and the third card is the remaining.\n\nBut player_0 passed. So, what does that imply? If player_0 has a higher card than me, they might have K. If they have Q, maybe they have a lower card. But since I have J, if player_0 has K, then they would have a higher card. But since they passed, maybe they are not betting. Wait, but in the first turn, player_0 chose to pass. So, what's the best strategy here?\n\nIn Kuhn Poker, the optimal strategy for the first player (player_0) is to bet if they have a higher card, and pass otherwise. But since player_0 passed, that might indicate that they have a lower card. But since I have J, and the third card is unknown, maybe I should consider the possible scenarios.\n\nWait, the third card is the one that's not held by either player. So, if I have J, then the other player has either K or Q. The third card is the remaining one. For example, if player_0 has K, then the third card is Q. If player_0 has Q, then the third card is K. But since the third card is unseen, I don't know.\n\nBut since player_0 passed, maybe they have a lower card. Because if they had a higher card (K), they might have bet. But since they passed, maybe they have a lower card. However, in Kuhn Poker, the optimal strategy is for the first player to bet with K and pass with Q. But player_0 passed, so maybe they have Q. But I have J. So, if I bet, then if player_0 has Q, they would have to pass, and I would win. But if player_0 has K, then they would have a higher card, but since they passed, maybe they are not betting. Wait, but if player_0 has K, they should bet, right? Because they have the highest card. So, if player_0 has K, they would bet. But they passed. So that suggests that player_0 has Q. Because if they had K, they would bet. So, since they passed, maybe they have Q. Therefore, I have J, which is higher than Q. So, if I bet, then player_0 would have to pass, and I would win. But if I pass, then we both pass, and I have J, which is higher than Q, so I would win. Wait, but if I pass, and player_0 passed, then the higher card wins. So, in that case, I have J, player_0 has Q, so I win. So, whether I bet or pass, I would win. But why would I bet?\n\nBut maybe there's a chance that player_0 has K. Wait, but if player_0 has K, they would have bet. But they passed. So, that's a contradiction. Therefore, player_0 must have Q. So, I have J, which is higher. So, if I bet, then player_0 would have to pass, and I would win. If I pass, then player_0 also passes, and I win. So, either way, I win. So, maybe I can choose either action. But in Kuhn Poker, the optimal strategy is to bet if you have a higher card. But since I have J, which is higher than Q, but lower than K. But since player_0 passed, maybe they have Q. So, I should bet. Because if I bet, then player_0 would have to pass, and I would win. But if I pass, then player_0 passes, and I win. So, either way, I win. So, maybe I can choose to bet or pass. But in the game, the optimal strategy is to bet if you have a higher card. But since I have J, which is higher than Q, but lower than K. But since player_0 passed, maybe they have Q. So, I should bet. Because if I bet, then player_0 has to pass, and I win. But if I pass, then player_0 passes, and I win. So, either way, I win. So, maybe it's indifferent. But in the game, the optimal strategy is to bet if you have a higher card. So, since I have J, which is higher than Q, but lower than K. But since player_0 passed, maybe they have Q. So, I should bet. Alternatively, maybe I should pass. But in that case, the pot is 2. But if I bet, the pot is 3. But since I have J, which is higher than Q, I can win either way. So, maybe it's better to bet, because if player_0 has Q, then I bet and they pass, and I win. If player_0 has K, then they would have bet, but they passed. So, that's not possible. Therefore, player_0 has Q. So, I should bet. So, the answer is BET.",
+   "answer": "<BET>",
+   "raw": "<think>\nOkay, let's try to figure out what to do here. So, in Kuhn Poker, each player starts with a blind ante of 1 chip. Then they get a private card from the deck which has three cards: King, Queen, Jack. The third card is unseen. \n\nIn this scenario, it's my turn (player_1). The game state says that my card is Jack (J). The previous turn, player_0 chose to pass. So, the betting history is that player_0 passed. The legal actions now are PASS or BET.\n\nFirst, I need to recall the rules. If both players pass or both bet, the one with the higher card wins. If one bets and the other passes, the bettor wins. But since player_0 passed, I need to decide whether to bet or pass.\n\nBut wait, what's the current state? The blinds are already in. Player_0 passed, so the pot has 2 chips (each Blind ante is 1, total 2). Now, I can choose to bet or pass. If I bet, I add 1 chip, making the pot 3. If I pass, the pot remains at 2.\n\nBut what's my card? I have Jack. The third card is unseen. So, the possible cards are K, Q, J. Since I have J, the other player has either K or Q. Wait, no. Wait, the deck has three cards: K, Q, J. Each player gets one, and the third is set aside. So, if I have J, then the other player has either K or Q, and the third card is the remaining one. So, player_0 has a card, which is either K or Q, and the third card is the remaining.\n\nBut player_0 passed. So, what does that imply? If player_0 has a higher card than me, they might have K. If they have Q, maybe they have a lower card. But since I have J, if player_0 has K, then they would have a higher card. But since they passed, maybe they are not betting. Wait, but in the first turn, player_0 chose to pass. So, what's the best strategy here?\n\nIn Kuhn Poker, the optimal strategy for the first player (player_0) is to bet if they have a higher card, and pass otherwise. But since player_0 passed, that might indicate that they have a lower card. But since I have J, and the third card is unknown, maybe I should consider the possible scenarios.\n\nWait, the third card is the one that's not held by either player. So, if I have J, then the other player has either K or Q. The third card is the remaining one. For example, if player_0 has K, then the third card is Q. If player_0 has Q, then the third card is K. But since the third card is unseen, I don't know.\n\nBut since player_0 passed, maybe they have a lower card. Because if they had a higher card (K), they might have bet. But since they passed, maybe they have a lower card. However, in Kuhn Poker, the optimal strategy is for the first player to bet with K and pass with Q. But player_0 passed, so maybe they have Q. But I have J. So, if I bet, then if player_0 has Q, they would have to pass, and I would win. But if player_0 has K, then they would have a higher card, but since they passed, maybe they are not betting. Wait, but if player_0 has K, they should bet, right? Because they have the highest card. So, if player_0 has K, they would bet. But they passed. So that suggests that player_0 has Q. Because if they had K, they would bet. So, since they passed, maybe they have Q. Therefore, I have J, which is higher than Q. So, if I bet, then player_0 would have to pass, and I would win. But if I pass, then we both pass, and I have J, which is higher than Q, so I would win. Wait, but if I pass, and player_0 passed, then the higher card wins. So, in that case, I have J, player_0 has Q, so I win. So, whether I bet or pass, I would win. But why would I bet?\n\nBut maybe there's a chance that player_0 has K. Wait, but if player_0 has K, they would have bet. But they passed. So, that's a contradiction. Therefore, player_0 must have Q. So, I have J, which is higher. So, if I bet, then player_0 would have to pass, and I would win. If I pass, then player_0 also passes, and I win. So, either way, I win. So, maybe I can choose either action. But in Kuhn Poker, the optimal strategy is to bet if you have a higher card. But since I have J, which is higher than Q, but lower than K. But since player_0 passed, maybe they have Q. So, I should bet. Because if I bet, then player_0 would have to pass, and I would win. But if I pass, then player_0 passes, and I win. So, either way, I win. So, maybe I can choose to bet or pass. But in the game, the optimal strategy is to bet if you have a higher card. But since I have J, which is higher than Q, but lower than K. But since player_0 passed, maybe they have Q. So, I should bet. Because if I bet, then player_0 has to pass, and I win. But if I pass, then player_0 passes, and I win. So, either way, I win. So, maybe it's indifferent. But in the game, the optimal strategy is to bet if you have a higher card. So, since I have J, which is higher than Q, but lower than K. But since player_0 passed, maybe they have Q. So, I should bet. Alternatively, maybe I should pass. But in that case, the pot is 2. But if I bet, the pot is 3. But since I have J, which is higher than Q, I can win either way. So, maybe it's better to bet, because if player_0 has Q, then I bet and they pass, and I win. If player_0 has K, then they would have bet, but they passed. So, that's not possible. Therefore, player_0 has Q. So, I should bet. So, the answer is BET.\n</think>\n\n<answer><BET></answer>",
+   "tokens": 1442,
+   "prompt_tokens": 531,
+   "seconds": 220.1,
+   "valid": true,
+   "forfeit": null,
+   "prompt_tail": "Information of Turn-1:\n\nThis is the other player's turn. The game state for this turn is not available to you. The chosen action of the other player for this turn is provided below.\n\nCHOSEN ACTION:\n<PASS>\nInformation of Turn-2:\n\nThis is your turn. The game state and legal actions for this turn are provided below. Please choose your action and strictly follow the given output format in the response instructions.\n\nGAME STATE:\n1. Blind ante: both player_0 and player_1 place 1 chip into the pot.\n2. Deal: your card is Jack (J).\n3. Turn 1: player_0 chooses to <PASS>.\n\nLEGAL ACTIONS:\n<PASS>, <BET>.\n\n"
+  },
+  {
+   "n": 3,
+   "player": 0,
+   "by": "bot",
+   "action": "<PASS>",
+   "observation": "1. Blind ante: both player_0 and player_1 place 1 chip into the pot.\n2. Deal: your card is Queen (Q).\n3. Turn 1: player_0 chooses to <PASS>.\n4. Turn 2: player_1 chooses to <BET>.",
+   "legal": [
+    "<PASS>",
+    "<BET>"
+   ],
+   "reward": -1.0,
+   "rewards": [
+    -1.0,
+    1.0
+   ],
+   "done": true,
+   "view": {
+    "type": "kuhn",
+    "cards": [
+     "Q",
+     "J"
+    ],
+    "bets": [
+     1,
+     2
+    ],
+    "pot": 3,
+    "actions": [
+     {
+      "player": 0,
+      "action": "PASS"
+     },
+     {
+      "player": 1,
+      "action": "BET"
+     },
+     {
+      "player": 0,
+      "action": "PASS"
+     }
+    ],
+    "returns": [
+     -1.0,
+     1.0
+    ]
+   }
+  }
+ ],
+ "result": {
+  "info": {
+   "card_0": "Queen (Q)",
+   "card_1": "Jack (J)",
+   "player_0_return": -1.0,
+   "player_1_return": 1.0,
+   "winner": 1,
+   "player_0_lose_for_wrong_format": 0,
+   "player_1_lose_for_wrong_format": 0,
+   "player_0_lose_for_overlong_response": 0,
+   "player_1_lose_for_overlong_response": 0,
+   "player_0_lose_for_overlong_sequence": 0,
+   "player_1_lose_for_overlong_sequence": 0,
+   "player_0_success": false,
+   "player_1_success": true,
+   "draw": false,
+   "total_pot": 3.0,
+   "player_0_bet": 1.0,
+   "player_1_bet": 2.0
+  },
+  "truncated": false,
+  "winner": 1,
+  "draw": false,
+  "returns": [
+   -1.0,
+   1.0
+  ],
+  "reason": "end"
+ },
+ "turn_rewards": {
+  "0": [
+   0.0,
+   -1.0
+  ],
+  "1": [
+   1.05
+  ]
+ },
+ "seat_keys": [
+  "bot",
+  "marshal-4b"
+ ]
+}
