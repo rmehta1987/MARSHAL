@@ -219,6 +219,12 @@
       "estimate": true
     },
     {
+      "id": "decrypto",
+      "title": "In Decrypto, the MARSHAL checkpoint plays like its base model",
+      "body": "32 Decrypto games (2026-10-30), Decrypto's own settings for both models. Eve won 29 of 32 games, so the team side sits near a floor: MARSHAL as Alice + Bob survived 1 of 16, the same as base Qwen3-4B. As Eve, MARSHAL intercepted in 16 of 16 games against 13 of 16 for the base model, a gap within noise at this size. Both answered in Decrypto's format almost every time (retries under 0.03 per move), so MARSHAL's tag-based training format didn't get in the way. As Eve, both models ran into Decrypto's 1024-token thinking budget on about 80% of moves.",
+      "source": "display/data/decrypto_summary.json (../decrypto/results/marshal_vs_qwen3_4b)"
+    },
+    {
       "id": "paper-limits",
       "title": "Why the bring-up can't be compared with the paper",
       "body": "The paper reports evaluation results (win rates against fixed opponents on held-out games, and benchmark accuracy inside multi-agent systems); the bring-up recorded training diagnostics at 1/8 of the paper's trajectories per step and 1/4 of its answer length. The Arena on this display does the evaluation part on a small scale: base Qwen3-4B and the published MARSHAL checkpoint against the same opponents MARSHAL evaluates with, under the paper's token limits.",

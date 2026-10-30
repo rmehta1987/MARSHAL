@@ -163,6 +163,41 @@ From the Arena evaluation recorded on the Strix Halo (88 games, 2026-10-30):
   cell (Tic-Tac-Toe 4/8 each; Kuhn 5 vs 6 of 12; Leduc 7 vs 5 of 12). Neither
   model beats MCTS at Connect Four.
 
+From MARSHAL in Decrypto (32 games, 8 per pairing, 2026-10-30):
+
+| Team (Alice + Bob) | Eve | Survived | Intercepted | Miscommunicated | Rounds |
+| --- | --- | --- | --- | --- | --- |
+| Qwen3-4B | Qwen3-4B | 1 | 7 | 0 | 5.0 |
+| Qwen3-4B | MARSHAL 4B | 0 | 8 | 0 | 5.1 |
+| MARSHAL 4B | Qwen3-4B | 1 | 6 | 1 | 5.4 |
+| MARSHAL 4B | MARSHAL 4B | 0 | 8 | 0 | 4.8 |
+
+Eve wins nearly every game with 4B models, so team quality barely shows. MARSHAL
+plays like its base model: as a team it survived 1 of 16 (base: 1 of 16); as Eve it
+intercepted in 16 of 16 (base: 13 of 16), a gap within noise. Format retries stay
+under 0.03 per move for both, and as Eve both hit Decrypto's 1024-token thinking
+budget on ~80% of moves. Clues that copy their keyword's stem are rare (5–7%) but
+get intercepted far more often for the base model (78% of those rounds vs 33%).
+
+### Training MARSHAL on Decrypto (not done)
+
+The published checkpoint never saw Decrypto, so the way to make MARSHAL better
+*at* Decrypto is to self-play on it. It is feasible on Midway (the megatron path
+is proven), with two real changes:
+
+1. **Three seats in two teams.** ROLL's `EnvManager` assumes two players
+   (`player_0/1_history`, `1 - player` as the opponent). Either generalize it to
+   N seats, or train two policies' worth of turns: the team (Alice's and Bob's
+   turns) against Eve.
+2. **Free-text moves.** MARSHAL checks an answer against a list of legal actions;
+   Decrypto hints are free text, so the env needs its own validator (three clues,
+   not the keywords) in `get_losing_state`'s place.
+
+`roll/agentic/env/hanabi` is the closest template (cooperative, hidden
+information). Turn rewards map naturally: +1 to the team per correct decode, −1
+per interception (the reverse for Eve), −11 for a broken format. Run it at the
+paper's limits: at 1024-token answers the bring-up runs had no learning signal.
+
 ## Controls
 
 | Key | Action |

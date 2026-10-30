@@ -1,0 +1,266 @@
+{
+ "experiment": "marshal_vs_qwen3_4b",
+ "pairings": [
+  {
+   "team": "qwen3_4b",
+   "eve": "qwen3_4b",
+   "team_name": "Qwen3-4B",
+   "eve_name": "Qwen3-4B",
+   "episodes": 8,
+   "survived": 1,
+   "intercepted": 7,
+   "miscommunicated": 0,
+   "both": 0,
+   "attempts": {
+    "encoder": 0.0,
+    "decoder": 0.0,
+    "interceptor": 0.0
+   },
+   "fails": {
+    "encoder": 0,
+    "decoder": 0,
+    "interceptor": 0
+   },
+   "games": [
+    "model_seed0/qwen3_4b_qwen3_4b_qwen3_4b_000_000/env_seed0",
+    "model_seed0/qwen3_4b_qwen3_4b_qwen3_4b_000_000/env_seed1"
+   ],
+   "clues": {
+    "rounds": 40,
+    "clues": 120,
+    "stem_clues": 5,
+    "rounds_with_stem": 4,
+    "intercepts": 15,
+    "intercepts_with_stem": 3,
+    "miscomms": 1,
+    "examples": [
+     "editor \u2192 edit",
+     "beginning \u2192 begin",
+     "assistance \u2192 assist",
+     "generation \u2192 generate",
+     "lady \u2192 lady"
+    ]
+   },
+   "avg_rounds": 5.0
+  },
+  {
+   "team": "qwen3_4b",
+   "eve": "marshal_4b",
+   "team_name": "Qwen3-4B",
+   "eve_name": "MARSHAL 4B",
+   "episodes": 8,
+   "survived": 0,
+   "intercepted": 8,
+   "miscommunicated": 0,
+   "both": 0,
+   "attempts": {
+    "encoder": 0.025,
+    "decoder": 0.0,
+    "interceptor": 0.0
+   },
+   "fails": {
+    "encoder": 0,
+    "decoder": 0,
+    "interceptor": 0
+   },
+   "games": [
+    "model_seed0/qwen3_4b_qwen3_4b_marshal_4b_000_000/env_seed0",
+    "model_seed0/qwen3_4b_qwen3_4b_marshal_4b_000_000/env_seed1"
+   ],
+   "clues": {
+    "rounds": 41,
+    "clues": 123,
+    "stem_clues": 6,
+    "rounds_with_stem": 5,
+    "intercepts": 16,
+    "intercepts_with_stem": 4,
+    "miscomms": 4,
+    "examples": [
+     "editor \u2192 edit",
+     "assistance \u2192 assist",
+     "beginning \u2192 begin",
+     "generation \u2192 generate",
+     "process \u2192 procedure",
+     "sense \u2192 sensation"
+    ]
+   },
+   "avg_rounds": 5.12
+  },
+  {
+   "team": "marshal_4b",
+   "eve": "qwen3_4b",
+   "team_name": "MARSHAL 4B",
+   "eve_name": "Qwen3-4B",
+   "episodes": 8,
+   "survived": 1,
+   "intercepted": 6,
+   "miscommunicated": 1,
+   "both": 0,
+   "attempts": {
+    "encoder": 0.0,
+    "decoder": 0.0,
+    "interceptor": 0.0
+   },
+   "fails": {
+    "encoder": 0,
+    "decoder": 0,
+    "interceptor": 0
+   },
+   "games": [
+    "model_seed0/marshal_4b_marshal_4b_qwen3_4b_000_000/env_seed0",
+    "model_seed0/marshal_4b_marshal_4b_qwen3_4b_000_000/env_seed1"
+   ],
+   "clues": {
+    "rounds": 43,
+    "clues": 129,
+    "stem_clues": 9,
+    "rounds_with_stem": 6,
+    "intercepts": 13,
+    "intercepts_with_stem": 3,
+    "miscomms": 5,
+    "examples": [
+     "editor \u2192 edit",
+     "assistance \u2192 assist",
+     "beginning \u2192 begin",
+     "editor \u2192 edit",
+     "generation \u2192 generate",
+     "sign \u2192 signal"
+    ]
+   },
+   "avg_rounds": 5.38
+  },
+  {
+   "team": "marshal_4b",
+   "eve": "marshal_4b",
+   "team_name": "MARSHAL 4B",
+   "eve_name": "MARSHAL 4B",
+   "episodes": 8,
+   "survived": 0,
+   "intercepted": 8,
+   "miscommunicated": 0,
+   "both": 0,
+   "attempts": {
+    "encoder": 0.028,
+    "decoder": 0.0,
+    "interceptor": 0.0
+   },
+   "fails": {
+    "encoder": 0,
+    "decoder": 0,
+    "interceptor": 0
+   },
+   "games": [
+    "model_seed0/marshal_4b_marshal_4b_marshal_4b_000_000/env_seed0",
+    "model_seed0/marshal_4b_marshal_4b_marshal_4b_000_000/env_seed1"
+   ],
+   "clues": {
+    "rounds": 38,
+    "clues": 114,
+    "stem_clues": 7,
+    "rounds_with_stem": 5,
+    "intercepts": 16,
+    "intercepts_with_stem": 2,
+    "miscomms": 3,
+    "examples": [
+     "editor \u2192 edit",
+     "assistance \u2192 assist",
+     "beginning \u2192 begin",
+     "generation \u2192 generate",
+     "sense \u2192 sensory",
+     "process \u2192 procedure"
+    ]
+   },
+   "avg_rounds": 4.75
+  }
+ ],
+ "models": {
+  "qwen3_4b": "Qwen3-4B",
+  "marshal_4b": "MARSHAL 4B"
+ },
+ "clues": {
+  "qwen3_4b": {
+   "name": "Qwen3-4B",
+   "rounds": 81,
+   "clues": 243,
+   "stem_clues": 11,
+   "rounds_with_stem": 9,
+   "intercepts": 31,
+   "intercepts_with_stem": 7,
+   "miscomms": 5,
+   "examples": [
+    "editor \u2192 edit",
+    "beginning \u2192 begin",
+    "assistance \u2192 assist",
+    "generation \u2192 generate",
+    "lady \u2192 lady",
+    "editor \u2192 edit"
+   ],
+   "stem_share": 0.045,
+   "intercept_rate_with_stem": 0.778,
+   "intercept_rate_without": 0.333
+  },
+  "marshal_4b": {
+   "name": "MARSHAL 4B",
+   "rounds": 81,
+   "clues": 243,
+   "stem_clues": 16,
+   "rounds_with_stem": 11,
+   "intercepts": 29,
+   "intercepts_with_stem": 5,
+   "miscomms": 8,
+   "examples": [
+    "editor \u2192 edit",
+    "assistance \u2192 assist",
+    "beginning \u2192 begin",
+    "editor \u2192 edit",
+    "generation \u2192 generate",
+    "sign \u2192 signal"
+   ],
+   "stem_share": 0.066,
+   "intercept_rate_with_stem": 0.455,
+   "intercept_rate_without": 0.343
+  }
+ },
+ "cap": {
+  "marshal_4b": {
+   "encoder": {
+    "moves": 81,
+    "capped": 15,
+    "mean_tokens": 709,
+    "cap_rate": 0.185
+   },
+   "decoder": {
+    "moves": 81,
+    "capped": 14,
+    "mean_tokens": 621,
+    "cap_rate": 0.173
+   },
+   "interceptor": {
+    "moves": 79,
+    "capped": 61,
+    "mean_tokens": 974,
+    "cap_rate": 0.772
+   }
+  },
+  "qwen3_4b": {
+   "interceptor": {
+    "moves": 83,
+    "capped": 68,
+    "mean_tokens": 971,
+    "cap_rate": 0.819
+   },
+   "encoder": {
+    "moves": 81,
+    "capped": 11,
+    "mean_tokens": 648,
+    "cap_rate": 0.136
+   },
+   "decoder": {
+    "moves": 81,
+    "capped": 12,
+    "mean_tokens": 579,
+    "cap_rate": 0.148
+   }
+  }
+ }
+}

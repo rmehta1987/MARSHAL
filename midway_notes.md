@@ -481,3 +481,10 @@ Local evaluation instead of paper repro: the published
 on the Strix Halo (vLLM containers on :8001 and :8000) and play MARSHAL's
 evaluation bots under the paper's limits (`display/record_eval.sh`), plus
 Decrypto's competitive setup (`display/decrypto/marshal_vs_qwen3_4b.yaml`).
+
+Results (2026-10-30, Strix Halo): in 88 Arena games the MARSHAL checkpoint
+forfeited 1 of 44 vs 14 of 44 for base Qwen3-4B (shorter answers that stay inside
+the 4096-token limit), with win rates against MCTS/CFR/NE bots within noise. In 32
+Decrypto games (Decrypto's settings for both) it played like its base model: Eve
+wins ~29/32 with 4B models, MARSHAL-as-Eve 16/16 vs base 13/16 (noise-level).
+Details and the per-pairing table: display/README.md, display/data/decrypto_summary.json.
